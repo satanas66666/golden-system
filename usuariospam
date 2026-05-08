@@ -1,0 +1,147 @@
+#!/bin/bash
+# =========================================
+# Script profesional de gestión de usuarios PAM
+# Siempre regresa al menú principal después de ejecutar una función
+# =========================================
+
+DB="/root/usuarios.db"
+
+# ============================
+# Función: Crear usuario
+# ============================
+crear_usuario() {
+    clear
+    echo "==== Crear Usuario ===="
+    read -p "🗣️ Usuario: " username
+    [[ -z "$username" ]] && { echo "❌ Usuario vacío"; sleep 2; return; }
+
+    if id "$username" >/dev/null 2>&1; then
+        echo "❌ El usuario ya existe"; sleep 2; return
+    fi
+
+    [[ ${#username} -lt 2 || ${#username} -gt 25 ]] && { echo "❌ Nombre inválido (2-25 caracteres)"; sleep 2; return; }
+
+    read -s -p "🔑 Contraseña: " password; echo ""
+    [[ -z "$password" || ${#password} -lt 4 ]] && { echo "❌ Contraseña inválida (mínimo 4 caracteres)"; sleep 2; return; }
+
+    read -p "⌛ Días para expirar: " dias
+    [[ ! "$dias" =~ ^[0-9]+$ || $dias -lt 1 ]] && { echo "❌ Número de días inválido"; sleep 2; return; }
+
+    read -p "📲 Límite de conexiones (0 para sin límite): " sshlimiter
+    sshlimiter=${sshlimiter:-0}
+
+    expira=$(date -d "+$dias days" +"%Y-%m-%d")
+    pass_hash=$(perl -e 'print crypt($ARGV[0], "password")' "$password")
+
+    useradd -M -s /bin/false -p "$pass_hash" -e "$expira" "$username"
+
+    if id "$username" >/dev/null 2>&1; then
+        echo "✅ Usuario $username creado correctamente"
+        echo "$username $sshlimiter" >> "$DB"
+    else
+        echo "❌ Error al crear el usuario"
+    fi
+
+    sleep 2
+}
+
+# ============================
+# Función: Editar usuario
+# ============================
+editar_usuario() {
+    clear
+    echo "==== Editar Usuario ===="
+    read -p "🗣️ Usuario a editar: " username
+    if ! id "$username" >/dev/null 2>&1; then
+        echo "❌ Usuario no existe"; sleep 2; return
+    fi
+
+    echo "1) Cambiar contraseña"
+    echo "2) Cambiar días de expiración"
+    echo "3) Cambiar límite de conexiones"
+    read -p "Selecciona opción: " opcion
+
+    case $opcion in
+        1)
+            read -s -p "Nueva contraseña: " password; echo ""
+            pass_hash=$(perl -e 'print crypt($ARGV[0], "password")' "$password")
+            usermod -p "$pass_hash" "$username"
+            echo "✅ Contraseña actualizada";;
+        2)
+            read -p "Nuevos días hasta expirar: " dias
+            [[ ! "$dias" =~ ^[0-9]+$ || $dias -lt 1 ]] && { echo "❌ Número inválido"; sleep 2; return; }
+            expira=$(date -d "+$dias days" +"%Y-%m-%d")
+            usermod -e "$expira" "$username"
+            echo "✅ Fecha de expiración actualizada";;
+        3)
+            read -p "Nuevo límite de conexiones: " sshlimiter
+            sshlimiter=${sshlimiter:-0}
+            grep -v "^$username " "$DB" > "$DB.tmp"
+            echo "$username $sshlimiter" >> "$DB.tmp"
+            mv "$DB.tmp" "$DB"
+            echo "✅ Límite de conexiones actualizado";;
+        *)
+            echo "❌ Opción inválida";;
+    esac
+
+    sleep 2
+}
+
+# ============================
+# Función: Listar usuarios
+# ============================
+listar_usuarios() {
+    clear
+    echo "==== Usuarios existentes ===="
+    [[ ! -f "$DB" ]] && { echo "❌ No hay usuarios creados aún"; sleep 2; return; }
+    awk '{printf "Usuario: %s | Límite conexiones: %s\n", $1, $2}' "$DB"
+    echo ""
+    read -p "Presiona ENTER para regresar al menú..."
+}
+
+# ============================
+# Función: Eliminar usuario
+# ============================
+eliminar_usuario() {
+    clear
+    echo "==== Eliminar Usuario ===="
+    read -p "Usuario a eliminar: " username
+    if ! id "$username" >/dev/null 2>&1; then
+        echo "❌ Usuario no existe"; sleep 2; return
+    fi
+
+    read -p "⚠️ Confirmar eliminación de $username (s/n): " confirm
+    [[ "$confirm" != [sS] ]] && { echo "Cancelado"; sleep 2; return; }
+
+    userdel "$username"
+    grep -v "^$username " "$DB" > "$DB.tmp"
+    mv "$DB.tmp" "$DB"
+    echo "✅ Usuario $username eliminado"
+    sleep 2
+}
+
+# ============================
+# Menú principal
+# ============================
+while true; do
+    clear
+    echo "================================="
+    echo "     Gestión de Usuarios PAM      "
+    echo "================================="
+    echo "1) Crear usuario"
+    echo "2) Editar usuario"
+    echo "3) Listar usuarios"
+    echo "4) Eliminar usuario"
+    echo "0) Salir"
+    echo "================================="
+    read -p "Selecciona una opción: " opcion
+
+    case $opcion in
+        1) crear_usuario ;;
+        2) editar_usuario ;;
+        3) listar_usuarios ;;
+        4) eliminar_usuario ;;
+        0) echo "Saliendo..."; exit 0 ;;
+        *) echo "❌ Opción inválida"; sleep 2 ;;
+    esac
+done
