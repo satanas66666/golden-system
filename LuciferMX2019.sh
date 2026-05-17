@@ -89,6 +89,9 @@ cat >/etc/profile.d/newgolden-login.sh <<'EOF'
 clear
 
 CYAN=$'\033[1;36m'
+GREEN=$'\033[1;32m'
+BLUE=$'\033[1;34m'
+ORANGE=$'\033[1;31m'
 WHITE=$'\033[1;37m'
 RESET=$'\033[0m'
 
@@ -99,57 +102,50 @@ center() {
     local text="$1"
     local len=${#text}
     local pad=$(( (cols - len) / 2 ))
+
     [[ $pad -lt 0 ]] && pad=0
+
     printf "%*s%s\n" "$pad" "" "$text"
 }
 
-line_center() {
-    local size=60
-    [[ "$cols" -lt 70 ]] && size=$((cols - 4))
-    [[ "$size" -lt 30 ]] && size=30
-
-    local line
-    line=$(printf '%*s' "$size" '' | tr ' ' '=')
-    center "$line"
-}
-
-echo -e "${CYAN}"
-line_center
-echo -e "${RESET}"
+echo
 
 if [[ "$cols" -lt 70 ]]; then
-    center "  ____  ___  _     ____  _____ _   _ "
-    center " / ___|/ _ \| |   |  _ \| ____| \ | |"
-    center "| |  _| | | | |   | | | |  _| |  \| |"
-    center "| |_| | |_| | |___| |_| | |___| |\  |"
-    center " \____|\___/|_____|____/|_____|_| \_|"
-    echo
-    center " __  __ __  __"
-    center "|  \/  |\ \/ /"
-    center "| |\/| | \  / "
-    center "| |  | | /  \ "
-    center "|_|  |_|/_/\_\\"
+
+center "${BLUE}  ____  ___  _     ____  _____ _   _ "
+center "${CYAN} / ___|/ _ \| |   |  _ \| ____| \ | |"
+center "${CYAN}| |  _| | | | |   | | | |  _| |  \| |"
+center "${GREEN}| |_| | |_| | |___| |_| | |___| |\  |"
+center "${GREEN} \____|\___/|_____|____/|_____|_| \_|"
+
+center ""
+
+center "${GREEN} __  __ __  __"
+center "${CYAN}|  \/  |\ \/ /"
+center "${CYAN}| |\/| | \  / "
+center "${BLUE}| |  | | /  \ "
+center "${BLUE}|_|  |_|/_/\_\\"
+
 else
-    center "  ____  ___  _     ____  _____ _   _     __  __ __  __"
-    center " / ___|/ _ \| |   |  _ \| ____| \ | |   |  \/  |\ \/ /"
-    center "| |  _| | | | |   | | | |  _| |  \| |   | |\/| | \  / "
-    center "| |_| | |_| | |___| |_| | |___| |\  |   | |  | | /  \ "
-    center " \____|\___/|_____|____/|_____|_| \_|   |_|  |_|/_/\_\\"
+
+center "${BLUE}  ____  ___  _     ____  _____ _   _     __  __ __  __"
+center "${CYAN} / ___|/ _ \| |   |  _ \| ____| \ | |   |  \/  |\ \/ /"
+center "${CYAN}| |  _| | | | |   | | | |  _| |  \| |   | |\/| | \  / "
+center "${GREEN}| |_| | |_| | |___| |_| | |___| |\  |   | |  | | /  \ "
+center "${GREEN} \____|\___/|_____|____/|_____|_| \_|   |_|  |_|/_/\_\\"
+
 fi
 
 echo
-echo -e "${CYAN}"
-line_center
-echo -e "${RESET}"
+center "${WHITE}NOMBRE DEL SERVIDOR : $(hostname)"
+center "${WHITE}SERVIDOR ENCENDIDO : $(uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1","$2}')"
+center "${WHITE}FECHA : $(date +%d-%m-%y)"
+center "${WHITE}HORA : $(date +%T)"
+center "${CYAN}@GoldenMX"
 
-center "Para ingresar al panel escriba:"
 echo
-center "menu"
+center "${ORANGE}ESCRIBA ( menu ) PARA ENTRAR.${RESET}"
 echo
-
-echo -e "${CYAN}"
-line_center
-echo -e "${RESET}"
 
 EOF
 
@@ -157,7 +153,7 @@ chmod +x /etc/profile.d/newgolden-login.sh
 
 cat >/etc/motd <<'EOF'
 GOLDEN MX
-Para ingresar al panel escriba: menu
+Escriba menu para entrar.
 EOF
 
 }
