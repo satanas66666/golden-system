@@ -89,29 +89,66 @@ cat >/etc/profile.d/newgolden-login.sh <<'EOF'
 clear
 
 cyan='\033[1;36m'
-green='\033[1;32m'
-yellow='\033[1;33m'
-red='\033[1;31m'
+gray='\033[1;90m'
+orange='\033[1;31m'
 white='\033[1;37m'
 reset='\033[0m'
 
-echo -e "${cyan}────────────────────────────────────────────────────────────${reset}"
+cols=$(tput cols 2>/dev/null)
+[[ -z "$cols" ]] && cols=80
+
+center() {
+    local text="$1"
+    local cleantext=$(echo -e "$text" | sed 's/\x1B\[[0-9;]*[a-zA-Z]//g')
+    local len=${#cleantext}
+    local pad=$(( (cols - len) / 2 ))
+
+    [[ $pad -lt 0 ]] && pad=0
+
+    printf "%*s%s\n" "$pad" "" "$text"
+}
+
+line() {
+    printf "%*s\n" "$cols" "" | tr ' ' '─'
+}
+
+logo_big() {
+
+center "${gray} ██████╗  ██████╗ ██╗     ██████╗ ███████╗███╗   ██╗${reset}"
+center "${gray}██╔════╝ ██╔═══██╗██║     ██╔══██╗██╔════╝████╗  ██║${reset}"
+center "${gray}██║  ███╗██║   ██║██║     ██║  ██║█████╗  ██╔██╗ ██║${reset}"
+center "${gray}██║   ██║██║   ██║██║     ██║  ██║██╔══╝  ██║╚██╗██║${reset}"
+center "${orange}╚██████╔╝╚██████╔╝███████╗██████╔╝███████╗██║ ╚████║${reset}"
+center "${orange} ╚═════╝  ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═══╝${reset}"
+
+center ""
+
+center "${orange}███╗   ███╗██╗  ██╗${reset}"
+center "${orange}████╗ ████║╚██╗██╔╝${reset}"
+center "${orange}██╔████╔██║ ╚███╔╝ ${reset}"
+center "${orange}██║╚██╔╝██║ ██╔██╗ ${reset}"
+center "${orange}██║ ╚═╝ ██║██╔╝ ██╗${reset}"
+center "${orange}╚═╝     ╚═╝╚═╝  ╚═╝${reset}"
+
+}
+
+echo -e "${cyan}$(line)${reset}"
 echo
-echo -e "   ${green} ██████╗  ██████╗ ██╗     ██████╗ ███████╗███╗   ██╗ ${reset}${red}███╗   ███╗██╗  ██╗${reset}"
-echo -e "   ${green}██╔════╝ ██╔═══██╗██║     ██╔══██╗██╔════╝████╗  ██║ ${reset}${red}████╗ ████║╚██╗██╔╝${reset}"
-echo -e "   ${yellow}██║  ███╗██║   ██║██║     ██║  ██║█████╗  ██╔██╗ ██║ ${reset}${red}██╔████╔██║ ╚███╔╝ ${reset}"
-echo -e "   ${yellow}██║   ██║██║   ██║██║     ██║  ██║██╔══╝  ██║╚██╗██║ ${reset}${red}██║╚██╔╝██║ ██╔██╗ ${reset}"
-echo -e "   ${red}╚██████╔╝╚██████╔╝███████╗██████╔╝███████╗██║ ╚████║ ${reset}${red}██║ ╚═╝ ██║██╔╝ ██╗${reset}"
-echo -e "   ${red} ╚═════╝  ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═══╝ ${reset}${red}╚═╝     ╚═╝╚═╝  ╚═╝${reset}"
+
+logo_big
+
 echo
-echo -e "${cyan}────────────────────────────────────────────────────────────${reset}"
+echo -e "${cyan}$(line)${reset}"
+
 echo
-echo -e "             ${white}Para ingresar al panel escriba:${reset}"
+center "${white}Para ingresar al panel escriba:${reset}"
 echo
-echo -e "                         ${green}menu${reset}"
+center "${orange}menu${reset}"
 echo
-echo -e "${cyan}────────────────────────────────────────────────────────────${reset}"
+
+echo -e "${cyan}$(line)${reset}"
 echo
+
 EOF
 
 chmod +x /etc/profile.d/newgolden-login.sh
