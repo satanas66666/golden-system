@@ -88,65 +88,57 @@ cat >/etc/profile.d/newgolden-login.sh <<'EOF'
 
 clear
 
-cyan='\033[1;36m'
-gray='\033[1;90m'
-orange='\033[1;31m'
-white='\033[1;37m'
-reset='\033[0m'
+RED=$'\033[1;31m'
+CYAN=$'\033[1;36m'
+WHITE=$'\033[1;37m'
+RESET=$'\033[0m'
 
 cols=$(tput cols 2>/dev/null)
 [[ -z "$cols" ]] && cols=80
 
 center() {
     local text="$1"
-    local cleantext=$(echo -e "$text" | sed 's/\x1B\[[0-9;]*[a-zA-Z]//g')
-    local len=${#cleantext}
+    local len=${#text}
     local pad=$(( (cols - len) / 2 ))
-
     [[ $pad -lt 0 ]] && pad=0
-
     printf "%*s%s\n" "$pad" "" "$text"
 }
 
 line() {
-    printf "%*s\n" "$cols" "" | tr ' ' '─'
+    printf '%*s\n' "$cols" '' | tr ' ' '='
 }
 
-logo_big() {
-
-center "${gray} ██████╗  ██████╗ ██╗     ██████╗ ███████╗███╗   ██╗${reset}"
-center "${gray}██╔════╝ ██╔═══██╗██║     ██╔══██╗██╔════╝████╗  ██║${reset}"
-center "${gray}██║  ███╗██║   ██║██║     ██║  ██║█████╗  ██╔██╗ ██║${reset}"
-center "${gray}██║   ██║██║   ██║██║     ██║  ██║██╔══╝  ██║╚██╗██║${reset}"
-center "${orange}╚██████╔╝╚██████╔╝███████╗██████╔╝███████╗██║ ╚████║${reset}"
-center "${orange} ╚═════╝  ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═══╝${reset}"
-
-center ""
-
-center "${orange}███╗   ███╗██╗  ██╗${reset}"
-center "${orange}████╗ ████║╚██╗██╔╝${reset}"
-center "${orange}██╔████╔██║ ╚███╔╝ ${reset}"
-center "${orange}██║╚██╔╝██║ ██╔██╗ ${reset}"
-center "${orange}██║ ╚═╝ ██║██╔╝ ██╗${reset}"
-center "${orange}╚═╝     ╚═╝╚═╝  ╚═╝${reset}"
-
-}
-
-echo -e "${cyan}$(line)${reset}"
+echo "${CYAN}$(line)${RESET}"
 echo
 
-logo_big
+if [[ "$cols" -lt 70 ]]; then
+    center "  ____  ___  _     ____  _____ _   _ "
+    center " / ___|/ _ \| |   |  _ \| ____| \ | |"
+    center "| |  _| | | | |   | | | |  _| |  \| |"
+    center "| |_| | |_| | |___| |_| | |___| |\  |"
+    center " \____|\___/|_____|____/|_____|_| \_|"
+    echo
+    center " __  __ __  __"
+    center "|  \/  |\ \/ /"
+    center "| |\/| | \  / "
+    center "| |  | | /  \ "
+    center "|_|  |_|/_/\_\\"
+else
+    center "  ____  ___  _     ____  _____ _   _     __  __ __  __"
+    center " / ___|/ _ \| |   |  _ \| ____| \ | |   |  \/  |\ \/ /"
+    center "| |  _| | | | |   | | | |  _| |  \| |   | |\/| | \  / "
+    center "| |_| | |_| | |___| |_| | |___| |\  |   | |  | | /  \ "
+    center " \____|\___/|_____|____/|_____|_| \_|   |_|  |_|/_/\_\\"
+fi
 
 echo
-echo -e "${cyan}$(line)${reset}"
-
+echo "${CYAN}$(line)${RESET}"
 echo
-center "${white}Para ingresar al panel escriba:${reset}"
+center "Para ingresar al panel escriba:"
 echo
-center "${orange}menu${reset}"
+center "menu"
 echo
-
-echo -e "${cyan}$(line)${reset}"
+echo "${CYAN}$(line)${RESET}"
 echo
 
 EOF
