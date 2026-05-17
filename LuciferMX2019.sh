@@ -88,7 +88,6 @@ cat >/etc/profile.d/newgolden-login.sh <<'EOF'
 
 clear
 
-RED=$'\033[1;31m'
 CYAN=$'\033[1;36m'
 WHITE=$'\033[1;37m'
 RESET=$'\033[0m'
@@ -104,12 +103,19 @@ center() {
     printf "%*s%s\n" "$pad" "" "$text"
 }
 
-line() {
-    printf '%*s\n' "$cols" '' | tr ' ' '='
+line_center() {
+    local size=60
+    [[ "$cols" -lt 70 ]] && size=$((cols - 4))
+    [[ "$size" -lt 30 ]] && size=30
+
+    local line
+    line=$(printf '%*s' "$size" '' | tr ' ' '=')
+    center "$line"
 }
 
-echo "${CYAN}$(line)${RESET}"
-echo
+echo -e "${CYAN}"
+line_center
+echo -e "${RESET}"
 
 if [[ "$cols" -lt 70 ]]; then
     center "  ____  ___  _     ____  _____ _   _ "
@@ -132,14 +138,18 @@ else
 fi
 
 echo
-echo "${CYAN}$(line)${RESET}"
-echo
+echo -e "${CYAN}"
+line_center
+echo -e "${RESET}"
+
 center "Para ingresar al panel escriba:"
 echo
 center "menu"
 echo
-echo "${CYAN}$(line)${RESET}"
-echo
+
+echo -e "${CYAN}"
+line_center
+echo -e "${RESET}"
 
 EOF
 
