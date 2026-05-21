@@ -108,6 +108,10 @@ center() {
     printf "%*s%s\n" "$pad" "" "$text"
 }
 
+usuarios_online() {
+    who 2>/dev/null | wc -l
+}
+
 echo
 
 if [[ "$cols" -lt 70 ]]; then
@@ -139,6 +143,7 @@ fi
 echo
 center "${WHITE}NOMBRE DEL SERVIDOR : $(hostname)"
 center "${WHITE}SERVIDOR ENCENDIDO : $(uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1","$2}')"
+center "${WHITE}USUARIOS EN LINEA : $(usuarios_online)"
 center "${WHITE}FECHA : $(date +%d-%m-%y)"
 center "${WHITE}HORA : $(date +%T)"
 center "${CYAN}@GoldenMX"
