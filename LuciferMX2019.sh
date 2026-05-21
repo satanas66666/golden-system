@@ -142,7 +142,7 @@ fi
 
 echo
 center "${WHITE}NOMBRE DEL SERVIDOR : $(hostname)"
-center "${WHITE}SERVIDOR ENCENDIDO : $(uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1","$2}')"
+center "${WHITE}SERVIDOR ENCENDIDO : $(uptime -p | sed 's/up //')"
 center "${WHITE}USUARIOS EN LINEA : $(usuarios_online)"
 center "${WHITE}FECHA : $(date +%d-%m-%y)"
 center "${WHITE}HORA : $(date +%T)"
