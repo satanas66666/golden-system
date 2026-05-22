@@ -109,7 +109,13 @@ center() {
 }
 
 usuarios_online() {
-    ss -tn state established 2>/dev/null | grep -E ':(22|80|443|8080|8799|3128|1194|7300|444|442|2082|2086|2052)' | wc -l
+    ss -Hntu state established 2>/dev/null \
+    | awk '{print $5}' \
+    | sed 's/::ffff://g' \
+    | cut -d: -f1 \
+    | grep -vE '^127\.|^::1|^\*$|^$' \
+    | sort -u \
+    | wc -l
 }
 
 echo
