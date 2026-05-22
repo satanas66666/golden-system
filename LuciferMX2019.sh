@@ -109,11 +109,25 @@ center() {
 }
 
 usuarios_online() {
-    if [[ -e /etc/newadm/USRonlines ]]; then
-        cat /etc/newadm/USRonlines 2>/dev/null
-    else
-        echo "0"
-    fi
+    local total=0
+
+    while read -r user; do
+        [[ -z "$user" ]] && continue
+
+        local pid="0"
+
+        pid=$((pid + $(pgrep -u "$user" sshd 2>/dev/null | wc -l)))
+        pid=$((pid + $(pgrep -u "$user" dropbear 2>/dev/null | wc -l)))
+
+        if [[ -e /etc/openvpn/openvpn-status.log ]]; then
+            grep -qw "$user" /etc/openvpn/openvpn-status.log && pid=$((pid + 1))
+        fi
+
+        [[ "$pid" -gt 0 ]] && total=$((total + 1))
+
+    done < <(awk -F: '$3 >= 1000 && $1 != "nobody" {print $1}' /etc/passwd)
+
+    echo "$total"
 }
 
 echo
