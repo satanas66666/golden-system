@@ -109,7 +109,7 @@ center() {
 }
 
 usuarios_online() {
-    who 2>/dev/null | wc -l
+    ss -tn state established 2>/dev/null | grep -E ':(22|80|443|8080|8799|3128|1194|7300|444|442|2082|2086|2052)' | wc -l
 }
 
 echo
