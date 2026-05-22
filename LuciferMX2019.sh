@@ -109,13 +109,11 @@ center() {
 }
 
 usuarios_online() {
-    ss -Hntu state established 2>/dev/null \
-    | awk '{print $5}' \
-    | sed 's/::ffff://g' \
-    | cut -d: -f1 \
-    | grep -vE '^127\.|^::1|^\*$|^$' \
-    | sort -u \
-    | wc -l
+    if [[ -e /etc/newadm/USRonlines ]]; then
+        cat /etc/newadm/USRonlines 2>/dev/null
+    else
+        echo "0"
+    fi
 }
 
 echo
