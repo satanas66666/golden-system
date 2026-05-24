@@ -145,7 +145,14 @@ center "${GREEN} \____|\___/|_____|____/|_____|_| \_|   |_|  |_|/_/\_\\"
 fi
 
 echo
-center "${WHITE}NOMBRE DEL SERVIDOR : $(hostname)"
+
+HOSTNAME_SERVER=$(hostname)
+
+if [[ "$HOSTNAME_SERVER" = "localhost" ]]; then
+    HOSTNAME_SERVER=$(hostname -I | awk '{print $1}')
+fi
+
+center "${WHITE}NOMBRE DEL SERVIDOR : ${HOSTNAME_SERVER}"
 center "${WHITE}SERVIDOR ENCENDIDO : $(uptime -p | sed 's/up //')"
 center "${WHITE}USUARIOS EN LINEA : $(usuarios_online)"
 center "${WHITE}FECHA : $(date +%d-%m-%y)"
@@ -164,6 +171,14 @@ cat >/etc/motd <<'EOF'
 GOLDEN MX
 Escriba menu para entrar.
 EOF
+
+echo "120" > /etc/newadm/ger-user/tiemlim.log
+
+screen -wipe >/dev/null 2>&1
+
+if ! pgrep -f "/etc/newadm/ger-user/usercodes verificar" >/dev/null 2>&1; then
+    screen -dmS very /etc/newadm/ger-user/usercodes verificar
+fi
 
 }
 
