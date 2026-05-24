@@ -109,11 +109,35 @@ center() {
 }
 
 usuarios_online() {
-    if [[ -s /etc/newadm/USRonlines ]]; then
-        tr -cd '0-9' < /etc/newadm/USRonlines
-    else
-        echo "0"
-    fi
+    local total=0
+    local USRdatabase="/etc/newadm/ger-user/usuarios.db"
+
+    [[ ! -e "$USRdatabase" ]] && echo "0" && return
+
+    while IFS='|' read -r user pass fecha limite; do
+        [[ -z "$user" ]] && continue
+
+        PID=0
+
+        SSH_PID=$(ps aux | grep "[s]shd" | grep -w "$user" | grep -vc root)
+        PID=$((PID + SSH_PID))
+
+        if command -v dropbear >/dev/null 2>&1; then
+            DROP_PID=$(dropbear_pids 2>/dev/null | grep -w "$user" | wc -l)
+            PID=$((PID + DROP_PID))
+        fi
+
+        if [[ -e /etc/openvpn/openvpn-status.log ]]; then
+            OVPN_PID=$(openvpn_pids 2>/dev/null | grep -w "$user" | cut -d'|' -f2)
+            [[ -z "$OVPN_PID" ]] && OVPN_PID=0
+            PID=$((PID + OVPN_PID))
+        fi
+
+        [[ "$PID" -gt 0 ]] && total=$((total + 1))
+
+    done < "$USRdatabase"
+
+    echo "$total"
 }
 
 echo
@@ -171,14 +195,6 @@ cat >/etc/motd <<'EOF'
 GOLDEN MX
 Escriba menu para entrar.
 EOF
-
-echo "120" > /etc/newadm/ger-user/tiemlim.log
-
-screen -wipe >/dev/null 2>&1
-
-if ! pgrep -f "/etc/newadm/ger-user/usercodes verificar" >/dev/null 2>&1; then
-    screen -dmS very /etc/newadm/ger-user/usercodes verificar
-fi
 
 }
 
