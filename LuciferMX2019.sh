@@ -127,16 +127,23 @@ usuarios_online() {
         PID=0
 
         SSH_PID=$(ps aux | grep "[s]shd" | grep -w "$user" | grep -vc root)
-        DROP_PID=$(ps aux | grep "[d]ropbear" | grep -w "$user" | wc -l)
+        PID=$((PID + SSH_PID))
 
-        OVPN_PID=0
-        if [[ -e /etc/openvpn/openvpn-status.log ]]; then
-            OVPN_PID=$(grep -w "$user" /etc/openvpn/openvpn-status.log | wc -l)
+        if command -v dropbear >/dev/null 2>&1; then
+            if command -v dropbear_pids >/dev/null 2>&1; then
+                DROP_PID=$(dropbear_pids 2>/dev/null | grep -w "$user" | wc -l)
+            else
+                DROP_PID=$(ps aux | grep "[d]ropbear" | grep -w "$user" | wc -l)
+            fi
+            PID=$((PID + DROP_PID))
         fi
 
-        PID=$((SSH_PID + DROP_PID + OVPN_PID))
+        if [[ -e /etc/openvpn/openvpn-status.log ]]; then
+            OVPN_PID=$(grep -w "$user" /etc/openvpn/openvpn-status.log | wc -l)
+            PID=$((PID + OVPN_PID))
+        fi
 
-        [[ "$PID" -gt 0 ]] && total=$((total + 1))
+        total=$((total + PID))
 
     done < "$DB"
 
