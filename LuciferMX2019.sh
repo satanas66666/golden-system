@@ -110,32 +110,35 @@ center() {
 
 usuarios_online() {
     local total=0
-    local USRdatabase="/etc/newadm/ger-user/usuarios.db"
+    local DB=""
 
-    [[ ! -e "$USRdatabase" ]] && echo "0" && return
+    for f in /etc/newadm/ger-user/usuarios.db /root/usuarios.db; do
+        [[ -s "$f" ]] && DB="$f" && break
+    done
+
+    [[ -z "$DB" ]] && echo "0" && return
 
     while IFS='|' read -r user pass fecha limite; do
         [[ -z "$user" ]] && continue
+        [[ "$user" =~ ^systemd- ]] && continue
+        [[ "$user" = "nobody" ]] && continue
+        [[ "$user" = "polkitd" ]] && continue
 
         PID=0
 
         SSH_PID=$(ps aux | grep "[s]shd" | grep -w "$user" | grep -vc root)
-        PID=$((PID + SSH_PID))
+        DROP_PID=$(ps aux | grep "[d]ropbear" | grep -w "$user" | wc -l)
 
-        if command -v dropbear >/dev/null 2>&1; then
-            DROP_PID=$(dropbear_pids 2>/dev/null | grep -w "$user" | wc -l)
-            PID=$((PID + DROP_PID))
-        fi
-
+        OVPN_PID=0
         if [[ -e /etc/openvpn/openvpn-status.log ]]; then
-            OVPN_PID=$(openvpn_pids 2>/dev/null | grep -w "$user" | cut -d'|' -f2)
-            [[ -z "$OVPN_PID" ]] && OVPN_PID=0
-            PID=$((PID + OVPN_PID))
+            OVPN_PID=$(grep -w "$user" /etc/openvpn/openvpn-status.log | wc -l)
         fi
+
+        PID=$((SSH_PID + DROP_PID + OVPN_PID))
 
         [[ "$PID" -gt 0 ]] && total=$((total + 1))
 
-    done < "$USRdatabase"
+    done < "$DB"
 
     echo "$total"
 }
