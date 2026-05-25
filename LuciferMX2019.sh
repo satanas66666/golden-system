@@ -266,21 +266,30 @@ systemctl restart apache2 2>/dev/null || service apache2 restart > /dev/null 2>&
 }
 
 funcao_idioma () {
-figlet "    GOLDEN MX" | lolcat
-msg -bar2
+    if command -v figlet >/dev/null 2>&1; then
+        if command -v lolcat >/dev/null 2>&1; then
+            figlet "    GOLDEN MX" | lolcat
+        else
+            figlet "    GOLDEN MX"
+        fi
+    else
+        echo -e "\033[1;33m    GOLDEN MX\033[0m"
+    fi
 
-pv="$(echo es)"
+    msg -bar2
 
-[[ ${#id} -gt 2 ]] && id="es" || id="$pv"
+    pv="es"
 
-byinst="true"
+    [[ ${#id} -gt 2 ]] && id="es" || id="$pv"
+
+    byinst="true"
 }
 
 install_fim () {
 
 msg -ama "$(source trans -b es:${id} "Instalacion completa, utilize los Comandos"|sed -e 's/[^a-z -]//ig')"
 
-msg bar2
+msg -bar2
 
 echo -e " menu / adm"
 
@@ -354,11 +363,12 @@ chmod +x ${ARQ}/$1
 fun_ip
 
 wget -q -O /usr/bin/trans https://www.dropbox.com/s/dzknghcgew54pc6/trans
-wget -q -O /usr/bin/limv2ray https://www.dropbox.com/s/k4tosjnio1scyvd/limv2ray
+
+wget -q -O /usr/bin/limv2ray https://raw.githubusercontent.com/satanas66666/golden-system/main/limv2ray
 
 chmod +x /usr/bin/limv2ray
 
-wget -q -O /bin/Desbloqueo.sh https://www.dropbox.com/s/9z6wclbzghi8k8u/Desbloqueo.sh
+wget -q -O /bin/Desbloqueo.sh https://raw.githubusercontent.com/satanas66666/golden-system/refs/heads/main/Desbloqueo.sh
 
 chmod +x /bin/Desbloqueo.sh
 
@@ -492,3 +502,4 @@ else
 invalid_key
 
 fi
+
