@@ -1,0 +1,44 @@
+#!/bin/bash
+
+expirados() {
+    local REG="/etc/newadm/RegV2ray"
+    local CONF="/etc/v2ray/config.json"
+    local VPSsec
+    VPSsec=$(date +%s)
+
+    [[ ! -s "$REG" ]] && return 0
+    [[ ! -f "$CONF" ]] && return 0
+
+    while IFS='|' read -r UUID USER DATEEXP RESTO; do
+        [[ -z "$UUID" ]] && continue
+        [[ -z "$DATEEXP" ]] && continue
+
+        DataSec=$(date -d "$DATEEXP" +%s 2>/dev/null)
+
+        [[ -z "$DataSec" ]] && continue
+
+        if [[ "$VPSsec" -gt "$DataSec" ]]; then
+            echo -e "\033[1;31mEliminando expirado:\033[0m $UUID"
+
+            lineP=$(grep -n -w "$UUID" "$CONF" | head -1 | cut -d: -f1)
+            lineReg=$(grep -n -w "$UUID" "$REG" | head -1 | cut -d: -f1)
+
+            if [[ -n "$lineReg" ]]; then
+                sed -i "${lineReg}d" "$REG"
+            fi
+
+            if [[ -n "$lineP" ]]; then
+                resta=$((lineP - 2))
+
+                [[ "$resta" -lt 1 ]] && resta="$lineP"
+
+                sed -i "${resta},$((resta + 4))d" "$CONF"
+            fi
+        fi
+
+    done < "$REG"
+}
+
+expirados
+
+systemctl restart v2ray 2>/dev/null || service v2ray restart 2>/dev/null || v2ray restart >/dev/null 2>&1
