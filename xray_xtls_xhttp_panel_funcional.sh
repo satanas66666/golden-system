@@ -1138,22 +1138,57 @@ info " ELIMINAR USUARIO"
 bar
 
 [[ ! -e "$REG" ]] && touch "$REG"
-cat "$REG" | awk -F'|' '{mode=$6; if(mode=="") mode="vmess-ws"; print NR") "$2" | "$1" | Modo:"mode" | Puerto:"$4" | Expira:"$3}'
+
+if [[ ! -s "$REG" ]]; then
+err "NO HAY USUARIOS"
+bar
+pause
+menu
+fi
+
+awk -F'|' '
+NF && $1 != "" {
+  mode=$6
+  if(mode=="") mode="vmess-ws"
+  printf "%d) %s | %s | Modo:%s | Puerto:%s | Expira:%s\n", ++i, $2, $1, mode, $4, $3
+}
+' "$REG"
 bar
 
-echo -ne "UUID/PASSWORD: "
-read -r cred
+echo -ne "Numero de usuario a eliminar o UUID/PASSWORD: "
+read -r seleccion
 
-line=$(grep -F "$cred" "$REG" | head -1)
+if [[ -z "$seleccion" ]]; then
+err "SELECCION INVALIDA"
+pause
+menu
+fi
+
+line=""
+
+# Permite eliminar por numero, segun la lista mostrada: 1, 2, 3...
+if [[ "$seleccion" == +([0-9]) ]]; then
+line=$(awk -F'|' -v n="$seleccion" 'NF && $1 != "" { if(++i==n){ print; exit } }' "$REG")
+else
+# Compatibilidad: tambien permite eliminar pegando UUID o password.
+line=$(grep -F "$seleccion" "$REG" | head -1)
+fi
+
+cred=$(echo "$line" | cut -d'|' -f1)
+user=$(echo "$line" | cut -d'|' -f2)
 port=$(echo "$line" | cut -d'|' -f4)
 mode=$(echo "$line" | cut -d'|' -f6)
 proto=$(inbound_proto "$port")
 
 if [[ -z "$cred" || -z "$port" ]]; then
-err "CREDENCIAL INVALIDA"
+err "USUARIO NO ENCONTRADO"
 pause
 menu
 fi
+
+bar
+info "ELIMINANDO: $user | Puerto: $port | Modo: ${mode:-vmess-ws}"
+bar
 
 tmp=$(mktemp)
 case "$proto" in
@@ -1169,8 +1204,10 @@ jq --arg p "$port" --arg id "$cred" '
 ;;
 esac
 
-grep -Fv "$cred" "$REG" > "$REG.tmp"
+# Quita del registro solo la cuenta seleccionada.
+awk -F'|' -v c="$cred" 'BEGIN{OFS=FS} !($1==c)' "$REG" > "$REG.tmp"
 mv "$REG.tmp" "$REG"
+
 restart_xray
 bar
 ok " USUARIO ELIMINADO"
