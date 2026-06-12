@@ -358,6 +358,49 @@ jq --argjson port "$port" --arg target "$reality_target" --arg sni "$reality_sni
 }]
 ' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
 ;;
+vmess-tcp-tls)
+jq --argjson port "$port" --arg d "$domain" --arg cert "/usr/local/etc/xray/cert/$port/cert.crt" --arg key "/usr/local/etc/xray/cert/$port/private.key" '
+.inbounds += [{
+  "port": $port,
+  "listen": "0.0.0.0",
+  "protocol": "vmess",
+  "settings": {"clients": [], "disableInsecureEncryption": false},
+  "sniffing": {"enabled": false},
+  "streamSettings": {
+    "network": "raw",
+    "security": "tls",
+    "sockopt": {"tcpFastOpen": true, "tcpKeepAliveIdle": 30},
+    "tlsSettings": {
+      "serverName": $d,
+      "alpn": ["http/1.1"],
+      "certificates": [{"certificateFile": $cert, "keyFile": $key}]
+    }
+  }
+}]
+' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+;;
+vmess-xhttp-tls)
+jq --arg p "$path" --argjson port "$port" --arg d "$domain" --arg cert "/usr/local/etc/xray/cert/$port/cert.crt" --arg key "/usr/local/etc/xray/cert/$port/private.key" '
+.inbounds += [{
+  "port": $port,
+  "listen": "0.0.0.0",
+  "protocol": "vmess",
+  "settings": {"clients": [], "disableInsecureEncryption": false},
+  "sniffing": {"enabled": false},
+  "streamSettings": {
+    "network": "xhttp",
+    "security": "tls",
+    "sockopt": {"tcpFastOpen": true, "tcpKeepAliveIdle": 30},
+    "xhttpSettings": {"path": $p, "mode": "auto"},
+    "tlsSettings": {
+      "serverName": $d,
+      "alpn": ["h2", "http/1.1"],
+      "certificates": [{"certificateFile": $cert, "keyFile": $key}]
+    }
+  }
+}]
+' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+;;
 vless-xhttp-tls)
 jq --arg p "$path" --argjson port "$port" --arg d "$domain" --arg cert "/usr/local/etc/xray/cert/$port/cert.crt" --arg key "/usr/local/etc/xray/cert/$port/private.key" '
 .inbounds += [{
@@ -416,6 +459,8 @@ esac
 mode_label(){
 case "$1" in
 vmess-ws) echo "VMess + WebSocket" ;;
+vmess-tcp-tls) echo "VMess + TCP + TLS" ;;
+vmess-xhttp-tls) echo "VMess + xHTTP + TLS" ;;
 vless-ws) echo "VLESS + WebSocket" ;;
 trojan-ws) echo "Trojan + WebSocket" ;;
 vless-tcp-xtls-tls) echo "VLESS + TCP + TLS + XTLS Vision" ;;
@@ -439,6 +484,9 @@ bar
 echo -e "${VERDE}[6]${RESET} VLESS + xHTTP + TLS"
 echo -e "${VERDE}[7]${RESET} VLESS + xHTTP + REALITY"
 bar
+echo -e "${VERDE}[8]${RESET} VMess + TCP + TLS"
+echo -e "${VERDE}[9]${RESET} VMess + xHTTP + TLS"
+bar
 echo -ne "Seleccione modo: "
 } >&2
 read -r mode_op
@@ -450,6 +498,8 @@ case "$mode_op" in
 5) echo "vless-tcp-xtls-reality" ;;
 6) echo "vless-xhttp-tls" ;;
 7) echo "vless-xhttp-reality" ;;
+8) echo "vmess-tcp-tls" ;;
+9) echo "vmess-xhttp-tls" ;;
 *) echo "vmess-ws" ;;
 esac
 }
@@ -643,7 +693,7 @@ printf "Path WebSocket EXACTO con espacios/emojis: "
 IFS= read -r path
 path=$(normalize_path "$path" "/${mode%%-*}")
 ;;
-vless-tcp-xtls-tls)
+vless-tcp-xtls-tls|vmess-tcp-tls)
 echo -ne "Dominio apuntado a la VPS para TLS: "
 read -r domain
 [[ -z "$domain" ]] && { err "DOMINIO INVALIDO"; pause; menu; }
@@ -661,8 +711,8 @@ private_key="${keys%%|*}"
 public_key="${keys##*|}"
 short_id=$(random_short_id)
 ;;
-vless-xhttp-tls)
-printf "Path xHTTP EXACTO: "
+vless-xhttp-tls|vmess-xhttp-tls)
+printf "Path xHTTP EXACTO con espacios/emojis: "
 IFS= read -r path
 path=$(normalize_path "$path" "/xhttp")
 echo -ne "Dominio apuntado a la VPS para TLS: "
@@ -875,6 +925,10 @@ elif [[ "$proto" == "vless" && "$network" == "xhttp" && "$security" == "reality"
 mode="vless-xhttp-reality"
 elif [[ "$proto" == "vless" && ( "$network" == "ws" || "$network" == "websocket" ) ]]; then
 mode="vless-ws"
+elif [[ "$proto" == "vmess" && "$network" == "raw" && "$security" == "tls" ]]; then
+mode="vmess-tcp-tls"
+elif [[ "$proto" == "vmess" && "$network" == "xhttp" && "$security" == "tls" ]]; then
+mode="vmess-xhttp-tls"
 elif [[ "$proto" == "vmess" ]]; then
 mode="vmess-ws"
 elif [[ "$proto" == "trojan" ]]; then
@@ -1045,6 +1099,16 @@ json=$(jq -n \
 '{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls}')
 echo "vmess://$(printf '%s' "$json" | base64 -w0)"
 ;;
+vmess-tcp-tls)
+tlsfield="tls"
+json=$(jq -n --arg v "2" --arg ps "$user" --arg add "$ip" --arg port "$port" --arg id "$cred" --arg aid "0" --arg scy "auto" --arg net "tcp" --arg type "none" --arg host "$hostcustom" --arg path "" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" '{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp}')
+echo "vmess://$(printf '%s' "$json" | base64 -w0)"
+;;
+vmess-xhttp-tls)
+tlsfield="tls"
+json=$(jq -n --arg v "2" --arg ps "$user" --arg add "$ip" --arg port "$port" --arg id "$cred" --arg aid "0" --arg scy "auto" --arg net "xhttp" --arg type "auto" --arg host "$hostcustom" --arg path "$path" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" --arg alpn "h2" '{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp,"alpn":$alpn}')
+echo "vmess://$(printf '%s' "$json" | base64 -w0)"
+;;
 trojan-ws)
 enccred=$(urlencode "$cred")
 link_security="none"
@@ -1079,6 +1143,10 @@ if [[ "$proto" == "trojan" ]]; then
 mode="trojan-ws"
 elif [[ "$proto" == "vless" ]]; then
 mode="vless-ws"
+elif [[ "$proto" == "vmess" && "$network" == "raw" && "$security" == "tls" ]]; then
+mode="vmess-tcp-tls"
+elif [[ "$proto" == "vmess" && "$network" == "xhttp" && "$security" == "tls" ]]; then
+mode="vmess-xhttp-tls"
 else
 mode="vmess-ws"
 fi
