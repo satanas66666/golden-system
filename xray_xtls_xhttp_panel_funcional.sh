@@ -10,6 +10,7 @@ DIR="/etc/newadm/xray"
 CFG="/usr/local/etc/xray/config.json"
 BIN="/usr/local/bin/xray"
 SERVICE="xray"
+PKG443_CONF="/etc/newadm/xray/tls443_package.conf"
 
 mkdir -p "$DIR" /etc/newadm /usr/local/etc/xray /etc/iptables
 
@@ -30,7 +31,7 @@ install_deps(){
 apt update -y
 apt install -y curl wget unzip zip jq uuid-runtime lsof screen iproute2 \
 iptables iptables-persistent netfilter-persistent ca-certificates \
-cron openssl socat chrony locales
+cron openssl socat chrony locales nginx
 locale-gen C.UTF-8 >/dev/null 2>&1
 }
 
@@ -358,49 +359,6 @@ jq --argjson port "$port" --arg target "$reality_target" --arg sni "$reality_sni
 }]
 ' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
 ;;
-vmess-tcp-tls)
-jq --argjson port "$port" --arg d "$domain" --arg cert "/usr/local/etc/xray/cert/$port/cert.crt" --arg key "/usr/local/etc/xray/cert/$port/private.key" '
-.inbounds += [{
-  "port": $port,
-  "listen": "0.0.0.0",
-  "protocol": "vmess",
-  "settings": {"clients": [], "disableInsecureEncryption": false},
-  "sniffing": {"enabled": false},
-  "streamSettings": {
-    "network": "raw",
-    "security": "tls",
-    "sockopt": {"tcpFastOpen": true, "tcpKeepAliveIdle": 30},
-    "tlsSettings": {
-      "serverName": $d,
-      "alpn": ["http/1.1"],
-      "certificates": [{"certificateFile": $cert, "keyFile": $key}]
-    }
-  }
-}]
-' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
-;;
-vmess-xhttp-tls)
-jq --arg p "$path" --argjson port "$port" --arg d "$domain" --arg cert "/usr/local/etc/xray/cert/$port/cert.crt" --arg key "/usr/local/etc/xray/cert/$port/private.key" '
-.inbounds += [{
-  "port": $port,
-  "listen": "0.0.0.0",
-  "protocol": "vmess",
-  "settings": {"clients": [], "disableInsecureEncryption": false},
-  "sniffing": {"enabled": false},
-  "streamSettings": {
-    "network": "xhttp",
-    "security": "tls",
-    "sockopt": {"tcpFastOpen": true, "tcpKeepAliveIdle": 30},
-    "xhttpSettings": {"path": $p, "mode": "auto"},
-    "tlsSettings": {
-      "serverName": $d,
-      "alpn": ["h2", "http/1.1"],
-      "certificates": [{"certificateFile": $cert, "keyFile": $key}]
-    }
-  }
-}]
-' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
-;;
 vless-xhttp-tls)
 jq --arg p "$path" --argjson port "$port" --arg d "$domain" --arg cert "/usr/local/etc/xray/cert/$port/cert.crt" --arg key "/usr/local/etc/xray/cert/$port/private.key" '
 .inbounds += [{
@@ -459,14 +417,19 @@ esac
 mode_label(){
 case "$1" in
 vmess-ws) echo "VMess + WebSocket" ;;
-vmess-tcp-tls) echo "VMess + TCP + TLS" ;;
-vmess-xhttp-tls) echo "VMess + xHTTP + TLS" ;;
 vless-ws) echo "VLESS + WebSocket" ;;
 trojan-ws) echo "Trojan + WebSocket" ;;
 vless-tcp-xtls-tls) echo "VLESS + TCP + TLS + XTLS Vision" ;;
 vless-tcp-xtls-reality) echo "VLESS + TCP + REALITY + XTLS Vision" ;;
 vless-xhttp-tls) echo "VLESS + xHTTP + TLS" ;;
+vmess-xhttp-tls) echo "VMess + xHTTP + TLS" ;;
 vless-xhttp-reality) echo "VLESS + xHTTP + REALITY" ;;
+pkg443-vmess-ws) echo "PAQUETE 443 TLS - VMess + WebSocket" ;;
+pkg443-vless-ws) echo "PAQUETE 443 TLS - VLESS + WebSocket" ;;
+pkg443-trojan-ws) echo "PAQUETE 443 TLS - Trojan + WebSocket" ;;
+pkg443-vless-xhttp-tls) echo "PAQUETE 443 TLS - VLESS + xHTTP" ;;
+pkg443-vmess-xhttp-tls) echo "PAQUETE 443 TLS - VMess + xHTTP" ;;
+pkg443-tls) echo "Abrir paquete TLS puerto 443" ;;
 *) echo "$1" ;;
 esac
 }
@@ -484,8 +447,7 @@ bar
 echo -e "${VERDE}[6]${RESET} VLESS + xHTTP + TLS"
 echo -e "${VERDE}[7]${RESET} VLESS + xHTTP + REALITY"
 bar
-echo -e "${VERDE}[8]${RESET} VMess + TCP + TLS"
-echo -e "${VERDE}[9]${RESET} VMess + xHTTP + TLS"
+echo -e "${VERDE}[10]${RESET} Abrir paquete TLS puerto 443"
 bar
 echo -ne "Seleccione modo: "
 } >&2
@@ -498,8 +460,7 @@ case "$mode_op" in
 5) echo "vless-tcp-xtls-reality" ;;
 6) echo "vless-xhttp-tls" ;;
 7) echo "vless-xhttp-reality" ;;
-8) echo "vmess-tcp-tls" ;;
-9) echo "vmess-xhttp-tls" ;;
+10) echo "pkg443-tls" ;;
 *) echo "vmess-ws" ;;
 esac
 }
@@ -620,7 +581,7 @@ create_config
 import_legacy_v2ray
 
 if [[ "$(jq -r '(.inbounds // []) | length' "$CFG" 2>/dev/null)" == "0" ]]; then
-  add_inbound 8080 "/vmess" "vmess-ws" "" "" "" "" ""
+  add_inbound 80 "/vmess" "vmess-ws" "" "" "" "" ""
 fi
 
 touch "$REG"
@@ -634,14 +595,341 @@ test_xray_config
 cat /tmp/xray-test.log 2>/dev/null
 bar
 
-if ss -lntp | grep -q ':8080'; then
-ok " XRAY INSTALADO Y ESCUCHANDO EN PUERTO 8080"
+if ss -lntp | grep -q ':80'; then
+ok " XRAY INSTALADO Y ESCUCHANDO EN PUERTO 80"
 else
 err " XRAY INSTALADO, PERO NO ESTA ESCUCHANDO"
 fi
 
 bar
 info "Ahora puedes agregar VLESS + XTLS, REALITY o xHTTP desde la opción [2]."
+bar
+pause
+menu
+}
+
+
+write_pkg443_conf(){
+local domain="$1" base="$2" p_vmess="$3" p_vless="$4" p_trojan="$5" p_vless_xhttp="$6" p_vmess_xhttp="$7"
+mkdir -p "$DIR"
+{
+printf 'PKG443_DOMAIN=%q\n' "$domain"
+printf 'PKG443_PATH_BASE=%q\n' "$base"
+printf 'PKG443_PORT_VMESS=%q\n' "41001"
+printf 'PKG443_PORT_VLESS=%q\n' "41002"
+printf 'PKG443_PORT_TROJAN=%q\n' "41003"
+printf 'PKG443_PORT_VLESS_XHTTP=%q\n' "41004"
+printf 'PKG443_PORT_VMESS_XHTTP=%q\n' "41005"
+printf 'PKG443_PATH_VMESS=%q\n' "$p_vmess"
+printf 'PKG443_PATH_VLESS=%q\n' "$p_vless"
+printf 'PKG443_PATH_TROJAN=%q\n' "$p_trojan"
+printf 'PKG443_PATH_VLESS_XHTTP=%q\n' "$p_vless_xhttp"
+printf 'PKG443_PATH_VMESS_XHTTP=%q\n' "$p_vmess_xhttp"
+} > "$PKG443_CONF"
+}
+
+load_pkg443_conf(){
+[[ -s "$PKG443_CONF" ]] || return 1
+# Archivo creado por este script con printf %q.
+# shellcheck disable=SC1090
+source "$PKG443_CONF"
+[[ -n "${PKG443_DOMAIN:-}" ]] || return 1
+return 0
+}
+
+add_inbound_local(){
+local port="$1" path="$2" mode="$3" tmp
+if jq -e --arg p "$port" '.inbounds[]? | select((.port|tostring)==$p)' "$CFG" >/dev/null 2>&1; then
+  return 0
+fi
+tmp=$(mktemp)
+case "$mode" in
+vmess-ws)
+jq --arg p "$path" --argjson port "$port" '
+.inbounds += [{
+  "port": $port,
+  "listen": "127.0.0.1",
+  "protocol": "vmess",
+  "settings": {"clients": [], "disableInsecureEncryption": false},
+  "sniffing": {"enabled": false},
+  "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": $p, "headers": {}}}
+}]
+' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+;;
+vless-ws)
+jq --arg p "$path" --argjson port "$port" '
+.inbounds += [{
+  "port": $port,
+  "listen": "127.0.0.1",
+  "protocol": "vless",
+  "settings": {"clients": [], "decryption": "none"},
+  "sniffing": {"enabled": false},
+  "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": $p, "headers": {}}}
+}]
+' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+;;
+trojan-ws)
+jq --arg p "$path" --argjson port "$port" '
+.inbounds += [{
+  "port": $port,
+  "listen": "127.0.0.1",
+  "protocol": "trojan",
+  "settings": {"clients": []},
+  "sniffing": {"enabled": false},
+  "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": $p, "headers": {}}}
+}]
+' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+;;
+vless-xhttp)
+jq --arg p "$path" --argjson port "$port" '
+.inbounds += [{
+  "port": $port,
+  "listen": "127.0.0.1",
+  "protocol": "vless",
+  "settings": {"clients": [], "decryption": "none"},
+  "sniffing": {"enabled": false},
+  "streamSettings": {"network": "xhttp", "security": "none", "xhttpSettings": {"path": $p, "mode": "auto"}}
+}]
+' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+;;
+vmess-xhttp)
+jq --arg p "$path" --argjson port "$port" '
+.inbounds += [{
+  "port": $port,
+  "listen": "127.0.0.1",
+  "protocol": "vmess",
+  "settings": {"clients": [], "disableInsecureEncryption": false},
+  "sniffing": {"enabled": false},
+  "streamSettings": {"network": "xhttp", "security": "none", "xhttpSettings": {"path": $p, "mode": "auto"}}
+}]
+' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+;;
+*) rm -f "$tmp"; return 1 ;;
+esac
+}
+
+nginx_location_ws(){
+local path="$1" port="$2"
+cat <<EOFNGX
+    location = "$path" {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:$port;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+EOFNGX
+}
+
+nginx_location_http(){
+local path="$1" port="$2"
+cat <<EOFNGX
+    location = "$path" {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:$port;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+EOFNGX
+}
+
+write_nginx_pkg443(){
+local domain="$1" p_vmess="$2" p_vless="$3" p_trojan="$4" p_vless_xhttp="$5" p_vmess_xhttp="$6"
+mkdir -p /etc/nginx/conf.d
+cat >/etc/nginx/conf.d/xray_tls443_package.conf <<EOFNGX
+server {
+    listen 443 ssl http2;
+    server_name $domain;
+
+    ssl_certificate /usr/local/etc/xray/cert/443/cert.crt;
+    ssl_certificate_key /usr/local/etc/xray/cert/443/private.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+EOFNGX
+nginx_location_ws "$p_vmess" "41001" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_ws "$p_vless" "41002" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_ws "$p_trojan" "41003" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_http "$p_vless_xhttp" "41004" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_http "$p_vmess_xhttp" "41005" >> /etc/nginx/conf.d/xray_tls443_package.conf
+cat >>/etc/nginx/conf.d/xray_tls443_package.conf <<'EOFNGX'
+
+    location / {
+        return 404;
+    }
+}
+EOFNGX
+}
+
+agregar_paquete_tls_443(){
+clear
+bar
+info " ABRIR PAQUETE TLS PUERTO 443"
+bar
+[[ ! -e "$CFG" ]] && { err "Primero instala Xray"; pause; menu; }
+
+if ss -lntp | grep -q ':443' && ! ss -lntp | grep ':443' | grep -qi nginx; then
+  err "El puerto 443 ya está ocupado por otro servicio. Libera el 443 antes de continuar."
+  ss -lntp | grep ':443'
+  pause
+  menu
+fi
+
+echo -ne "Dominio apuntado a la VPS para TLS: "
+read -r domain
+[[ -z "$domain" ]] && { err "DOMINIO INVALIDO"; pause; menu; }
+
+printf "Path base EXACTO con espacios/emojis: "
+IFS= read -r base_path
+base_path=$(normalize_path "$base_path" "/xray")
+
+p_vmess="${base_path}/vmess"
+p_vless="${base_path}/vless"
+p_trojan="${base_path}/trojan"
+p_vless_xhttp="${base_path}/vlessxhttp"
+p_vmess_xhttp="${base_path}/vmessxhttp"
+
+bar
+info "Se crearán estos paths con la misma lógica:"
+echo "VMess WS      : [$p_vmess]"
+echo "VLESS WS      : [$p_vless]"
+echo "Trojan WS     : [$p_trojan]"
+echo "VLESS xHTTP   : [$p_vless_xhttp]"
+echo "VMess xHTTP   : [$p_vmess_xhttp]"
+bar
+
+# Para emitir certificado standalone se libera 443 si nginx estaba activo.
+systemctl stop nginx >/dev/null 2>&1
+issue_tls_cert 443 "$domain" || { restart_xray; pause; menu; }
+
+add_inbound_local 41001 "$p_vmess" "vmess-ws" || { err "No se pudo crear VMess WS interno"; pause; menu; }
+add_inbound_local 41002 "$p_vless" "vless-ws" || { err "No se pudo crear VLESS WS interno"; pause; menu; }
+add_inbound_local 41003 "$p_trojan" "trojan-ws" || { err "No se pudo crear Trojan WS interno"; pause; menu; }
+add_inbound_local 41004 "$p_vless_xhttp" "vless-xhttp" || { err "No se pudo crear VLESS xHTTP interno"; pause; menu; }
+add_inbound_local 41005 "$p_vmess_xhttp" "vmess-xhttp" || { err "No se pudo crear VMess xHTTP interno"; pause; menu; }
+
+write_pkg443_conf "$domain" "$base_path" "$p_vmess" "$p_vless" "$p_trojan" "$p_vless_xhttp" "$p_vmess_xhttp"
+write_nginx_pkg443 "$domain" "$p_vmess" "$p_vless" "$p_trojan" "$p_vless_xhttp" "$p_vmess_xhttp"
+
+nginx -t >/tmp/nginx-test.log 2>&1 || { err "Error en configuración Nginx"; cat /tmp/nginx-test.log; pause; menu; }
+open_port 443
+systemctl enable nginx >/dev/null 2>&1
+systemctl restart nginx >/dev/null 2>&1
+restart_xray
+
+bar
+ok "PAQUETE TLS 443 ACTIVADO"
+echo "Dominio/SNI: $domain"
+echo "Puerto público: 443"
+echo "Paths:"
+echo "  VMess WS    : $p_vmess"
+echo "  VLESS WS    : $p_vless"
+echo "  Trojan WS   : $p_trojan"
+echo "  VLESS xHTTP : $p_vless_xhttp"
+echo "  VMess xHTTP : $p_vmess_xhttp"
+bar
+info "Para crear usuarios usa la opción [6] CREAR USUARIO y escribe puerto 443."
+bar
+pause
+menu
+}
+
+show_pkg443_ports(){
+if load_pkg443_conf; then
+  echo "Puerto: 443 | PAQUETE TLS | Dominio: $PKG443_DOMAIN | Nginx -> Xray local"
+  echo "  [1] VMess WS      Path: [$PKG443_PATH_VMESS]"
+  echo "  [2] VLESS WS      Path: [$PKG443_PATH_VLESS]"
+  echo "  [3] Trojan WS     Path: [$PKG443_PATH_TROJAN]"
+  echo "  [4] VLESS xHTTP   Path: [$PKG443_PATH_VLESS_XHTTP]"
+  echo "  [5] VMess xHTTP   Path: [$PKG443_PATH_VMESS_XHTTP]"
+fi
+}
+
+crear_usuario_pkg443(){
+load_pkg443_conf || { err "No existe paquete TLS 443. Créalo en [2] -> [10]."; pause; menu; }
+bar
+info " CREAR USUARIO PAQUETE TLS 443"
+bar
+echo -e "${VERDE}[1]${RESET} VMess + WebSocket + TLS 443"
+echo -e "${VERDE}[2]${RESET} VLESS + WebSocket + TLS 443"
+echo -e "${VERDE}[3]${RESET} Trojan + WebSocket + TLS 443"
+echo -e "${VERDE}[4]${RESET} VLESS + xHTTP + TLS 443"
+echo -e "${VERDE}[5]${RESET} VMess + xHTTP + TLS 443"
+bar
+echo -ne "Seleccione protocolo: "
+read -r pkgop
+case "$pkgop" in
+1) port="$PKG443_PORT_VMESS"; proto="vmess"; network="ws"; security="tls"; mode="pkg443-vmess-ws"; path="$PKG443_PATH_VMESS" ;;
+2) port="$PKG443_PORT_VLESS"; proto="vless"; network="ws"; security="tls"; mode="pkg443-vless-ws"; path="$PKG443_PATH_VLESS" ;;
+3) port="$PKG443_PORT_TROJAN"; proto="trojan"; network="ws"; security="tls"; mode="pkg443-trojan-ws"; path="$PKG443_PATH_TROJAN" ;;
+4) port="$PKG443_PORT_VLESS_XHTTP"; proto="vless"; network="xhttp"; security="tls"; mode="pkg443-vless-xhttp-tls"; path="$PKG443_PATH_VLESS_XHTTP" ;;
+5) port="$PKG443_PORT_VMESS_XHTTP"; proto="vmess"; network="xhttp"; security="tls"; mode="pkg443-vmess-xhttp-tls"; path="$PKG443_PATH_VMESS_XHTTP" ;;
+*) err "OPCIÓN INVALIDA"; pause; menu ;;
+esac
+sni="$PKG443_DOMAIN"
+hostcustom="$PKG443_DOMAIN"
+flow=""
+
+echo -ne "Usuario: "
+read -r user
+user="$(echo "$user" | sed 's/[^a-zA-Z0-9_-]//g')"
+if [[ ${#user} -lt 2 || ${#user} -gt 20 ]]; then err "USUARIO INVALIDO"; pause; menu; fi
+
+echo -ne "Dias: "
+read -r dias
+if [[ -z "$dias" || "$dias" != +([0-9]) || "$dias" -lt 1 || "$dias" -gt 365 ]]; then err "DIAS INVALIDOS"; pause; menu; fi
+
+if [[ "$proto" == "trojan" ]]; then
+  echo -ne "Password personalizado ENTER para automático: "
+  IFS= read -r credcustom
+  if [[ -z "$credcustom" ]]; then cred=$(openssl rand -hex 12); else cred="$credcustom"; fi
+else
+  echo -ne "UUID personalizado ENTER para automático: "
+  IFS= read -r credcustom
+  if [[ -z "$credcustom" ]]; then cred=$(uuidgen); else cred="$credcustom"; fi
+  if ! [[ "$cred" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+    err "UUID INVALIDO. Usa formato UUID correcto o deja vacío para automático."
+    pause
+    menu
+  fi
+fi
+
+expire=$(date '+%F' -d "+$dias days")
+email="$user@golden"
+tmp=$(mktemp)
+case "$proto" in
+vmess)
+jq --arg p "$port" --arg id "$cred" --arg email "$email" '.inbounds |= map(if (.port|tostring)==$p then .settings.clients += [{"id":$id,"alterId":0,"security":"auto","level":0,"email":$email}] else . end)' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+;;
+vless)
+jq --arg p "$port" --arg id "$cred" --arg email "$email" '.inbounds |= map(if (.port|tostring)==$p then .settings.clients += [{"id":$id,"level":0,"email":$email}] else . end)' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+;;
+trojan)
+jq --arg p "$port" --arg pass "$cred" --arg email "$email" '.inbounds |= map(if (.port|tostring)==$p then .settings.clients += [{"password":$pass,"level":0,"email":$email}] else . end)' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+;;
+esac
+
+echo "$cred|$user|$expire|$port|$hostcustom|$mode|$network|$security|$flow|$path|$sni|||/" >> "$REG"
+restart_xray
+bar
+ok " USUARIO CREADO EN PAQUETE TLS 443"
+echo "Usuario: $user"
+echo "Modo: $(mode_label "$mode")"
+if [[ "$proto" == "trojan" ]]; then echo "Password: $cred"; else echo "UUID: $cred"; fi
+echo "Puerto público: 443"
+echo "Dominio/SNI: $sni"
+echo "Path: $path"
+bar
+generar_link "$cred" "$user" "443" "$hostcustom" "$mode" "$network" "$security" "$flow" "$path" "$sni" "" "" "/"
 bar
 pause
 menu
@@ -663,6 +951,11 @@ mode=$(select_mode)
 bar
 info "Modo seleccionado: $(mode_label "$mode")"
 bar
+
+if [[ "$mode" == "pkg443-tls" ]]; then
+  agregar_paquete_tls_443
+  return
+fi
 
 echo -ne "Puerto nuevo: "
 read -r port
@@ -693,7 +986,7 @@ printf "Path WebSocket EXACTO con espacios/emojis: "
 IFS= read -r path
 path=$(normalize_path "$path" "/${mode%%-*}")
 ;;
-vless-tcp-xtls-tls|vmess-tcp-tls)
+vless-tcp-xtls-tls)
 echo -ne "Dominio apuntado a la VPS para TLS: "
 read -r domain
 [[ -z "$domain" ]] && { err "DOMINIO INVALIDO"; pause; menu; }
@@ -711,8 +1004,8 @@ private_key="${keys%%|*}"
 public_key="${keys##*|}"
 short_id=$(random_short_id)
 ;;
-vless-xhttp-tls|vmess-xhttp-tls)
-printf "Path xHTTP EXACTO con espacios/emojis: "
+vless-xhttp-tls)
+printf "Path xHTTP EXACTO: "
 IFS= read -r path
 path=$(normalize_path "$path" "/xhttp")
 echo -ne "Dominio apuntado a la VPS para TLS: "
@@ -892,6 +1185,7 @@ bar
 [[ ! -e "$CFG" ]] && { err "Primero instala Xray"; pause; menu; }
 
 show_ports
+show_pkg443_ports
 bar
 
 while true; do
@@ -900,6 +1194,10 @@ read -r port
 if [[ -z "$port" || "$port" != +([0-9]) ]]; then
 err "PUERTO INVALIDO"
 continue
+fi
+if [[ "$port" == "443" ]] && load_pkg443_conf; then
+crear_usuario_pkg443
+return
 fi
 if ! jq -e --arg p "$port" '.inbounds[] | select((.port|tostring)==$p)' "$CFG" >/dev/null; then
 err "PUERTO NO EXISTE"
@@ -925,10 +1223,6 @@ elif [[ "$proto" == "vless" && "$network" == "xhttp" && "$security" == "reality"
 mode="vless-xhttp-reality"
 elif [[ "$proto" == "vless" && ( "$network" == "ws" || "$network" == "websocket" ) ]]; then
 mode="vless-ws"
-elif [[ "$proto" == "vmess" && "$network" == "raw" && "$security" == "tls" ]]; then
-mode="vmess-tcp-tls"
-elif [[ "$proto" == "vmess" && "$network" == "xhttp" && "$security" == "tls" ]]; then
-mode="vmess-xhttp-tls"
 elif [[ "$proto" == "vmess" ]]; then
 mode="vmess-ws"
 elif [[ "$proto" == "trojan" ]]; then
@@ -1082,6 +1376,16 @@ ip=$(vps_ip)
 [[ -z "$sni" || "$sni" == "null" ]] && sni=$(inbound_sni "$port")
 [[ -z "$hostcustom" || "$hostcustom" == "null" ]] && hostcustom="$sni"
 
+# Si el usuario pertenece al paquete TLS 443, el inbound real es local,
+# pero el link público siempre debe salir por 443 con TLS.
+case "$mode" in
+pkg443-vmess-ws) port="443"; mode="vmess-ws"; security="tls" ;;
+pkg443-vless-ws) port="443"; mode="vless-ws"; security="tls" ;;
+pkg443-trojan-ws) port="443"; mode="trojan-ws"; security="tls" ;;
+pkg443-vless-xhttp-tls) port="443"; mode="vless-xhttp-tls"; network="xhttp"; security="tls" ;;
+pkg443-vmess-xhttp-tls) port="443"; mode="vmess-xhttp-tls"; network="xhttp"; security="tls" ;;
+esac
+
 encpath=$(urlencode "$path")
 encuser=$(urlencode "$user")
 enchost=$(urlencode "$hostcustom")
@@ -1099,14 +1403,13 @@ json=$(jq -n \
 '{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls}')
 echo "vmess://$(printf '%s' "$json" | base64 -w0)"
 ;;
-vmess-tcp-tls)
-tlsfield="tls"
-json=$(jq -n --arg v "2" --arg ps "$user" --arg add "$ip" --arg port "$port" --arg id "$cred" --arg aid "0" --arg scy "auto" --arg net "tcp" --arg type "none" --arg host "$hostcustom" --arg path "" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" '{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp}')
-echo "vmess://$(printf '%s' "$json" | base64 -w0)"
-;;
 vmess-xhttp-tls)
 tlsfield="tls"
-json=$(jq -n --arg v "2" --arg ps "$user" --arg add "$ip" --arg port "$port" --arg id "$cred" --arg aid "0" --arg scy "auto" --arg net "xhttp" --arg type "auto" --arg host "$hostcustom" --arg path "$path" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" --arg alpn "h2" '{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp,"alpn":$alpn}')
+json=$(jq -n \
+--arg v "2" --arg ps "$user" --arg add "$ip" --arg port "$port" --arg id "$cred" \
+--arg aid "0" --arg scy "auto" --arg net "xhttp" --arg type "auto" --arg host "$hostcustom" \
+--arg path "$path" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" --arg alpn "h2" \
+'{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp,"alpn":$alpn}')
 echo "vmess://$(printf '%s' "$json" | base64 -w0)"
 ;;
 trojan-ws)
@@ -1143,10 +1446,6 @@ if [[ "$proto" == "trojan" ]]; then
 mode="trojan-ws"
 elif [[ "$proto" == "vless" ]]; then
 mode="vless-ws"
-elif [[ "$proto" == "vmess" && "$network" == "raw" && "$security" == "tls" ]]; then
-mode="vmess-tcp-tls"
-elif [[ "$proto" == "vmess" && "$network" == "xhttp" && "$security" == "tls" ]]; then
-mode="vmess-xhttp-tls"
 else
 mode="vmess-ws"
 fi
@@ -1206,57 +1505,22 @@ info " ELIMINAR USUARIO"
 bar
 
 [[ ! -e "$REG" ]] && touch "$REG"
-
-if [[ ! -s "$REG" ]]; then
-err "NO HAY USUARIOS"
-bar
-pause
-menu
-fi
-
-awk -F'|' '
-NF && $1 != "" {
-  mode=$6
-  if(mode=="") mode="vmess-ws"
-  printf "%d) %s | %s | Modo:%s | Puerto:%s | Expira:%s\n", ++i, $2, $1, mode, $4, $3
-}
-' "$REG"
+cat "$REG" | awk -F'|' '{mode=$6; if(mode=="") mode="vmess-ws"; print NR") "$2" | "$1" | Modo:"mode" | Puerto:"$4" | Expira:"$3}'
 bar
 
-echo -ne "Numero de usuario a eliminar o UUID/PASSWORD: "
-read -r seleccion
+echo -ne "UUID/PASSWORD: "
+read -r cred
 
-if [[ -z "$seleccion" ]]; then
-err "SELECCION INVALIDA"
-pause
-menu
-fi
-
-line=""
-
-# Permite eliminar por numero, segun la lista mostrada: 1, 2, 3...
-if [[ "$seleccion" == +([0-9]) ]]; then
-line=$(awk -F'|' -v n="$seleccion" 'NF && $1 != "" { if(++i==n){ print; exit } }' "$REG")
-else
-# Compatibilidad: tambien permite eliminar pegando UUID o password.
-line=$(grep -F "$seleccion" "$REG" | head -1)
-fi
-
-cred=$(echo "$line" | cut -d'|' -f1)
-user=$(echo "$line" | cut -d'|' -f2)
+line=$(grep -F "$cred" "$REG" | head -1)
 port=$(echo "$line" | cut -d'|' -f4)
 mode=$(echo "$line" | cut -d'|' -f6)
 proto=$(inbound_proto "$port")
 
 if [[ -z "$cred" || -z "$port" ]]; then
-err "USUARIO NO ENCONTRADO"
+err "CREDENCIAL INVALIDA"
 pause
 menu
 fi
-
-bar
-info "ELIMINANDO: $user | Puerto: $port | Modo: ${mode:-vmess-ws}"
-bar
 
 tmp=$(mktemp)
 case "$proto" in
@@ -1272,10 +1536,8 @@ jq --arg p "$port" --arg id "$cred" '
 ;;
 esac
 
-# Quita del registro solo la cuenta seleccionada.
-awk -F'|' -v c="$cred" 'BEGIN{OFS=FS} !($1==c)' "$REG" > "$REG.tmp"
+grep -Fv "$cred" "$REG" > "$REG.tmp"
 mv "$REG.tmp" "$REG"
-
 restart_xray
 bar
 ok " USUARIO ELIMINADO"
@@ -1345,6 +1607,7 @@ fi
 bar
 info "PUERTOS CONFIGURADOS"
 show_ports
+show_pkg443_ports
 bar
 info "PUERTOS ESCUCHANDO"
 ss -lntp | grep xray || err "NO HAY PUERTOS ESCUCHANDO"
@@ -1442,6 +1705,7 @@ if systemctl is-active --quiet xray; then ok "SERVICIO: ACTIVO"; else err "SERVI
 bar
 info "PUERTOS CONFIGURADOS"
 show_ports
+show_pkg443_ports
 bar
 echo -e "${VERDE}[1]${RESET} INSTALAR XRAY-CORE"
 echo -e "${VERDE}[2]${RESET} AGREGAR PUERTO / PROTOCOLO"
