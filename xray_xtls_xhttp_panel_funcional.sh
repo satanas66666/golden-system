@@ -447,7 +447,7 @@ bar
 echo -e "${VERDE}[6]${RESET} VLESS + xHTTP + TLS"
 echo -e "${VERDE}[7]${RESET} VLESS + xHTTP + REALITY"
 bar
-echo -e "${VERDE}[10]${RESET} Abrir paquete TLS puerto 443"
+echo -e "${VERDE}[8]${RESET} Abrir paquete TLS puerto 443"
 bar
 echo -ne "Seleccione modo: "
 } >&2
@@ -460,7 +460,7 @@ case "$mode_op" in
 5) echo "vless-tcp-xtls-reality" ;;
 6) echo "vless-xhttp-tls" ;;
 7) echo "vless-xhttp-reality" ;;
-10) echo "pkg443-tls" ;;
+8) echo "pkg443-tls" ;;
 *) echo "vmess-ws" ;;
 esac
 }
@@ -855,7 +855,7 @@ fi
 }
 
 crear_usuario_pkg443(){
-load_pkg443_conf || { err "No existe paquete TLS 443. Créalo en [2] -> [10]."; pause; menu; }
+load_pkg443_conf || { err "No existe paquete TLS 443. Créalo en [2] -> [8]."; pause; menu; }
 bar
 info " CREAR USUARIO PAQUETE TLS 443"
 bar
