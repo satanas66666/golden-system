@@ -620,7 +620,7 @@ create_config
 import_legacy_v2ray
 
 if [[ "$(jq -r '(.inbounds // []) | length' "$CFG" 2>/dev/null)" == "0" ]]; then
-  add_inbound 80 "/vmess" "vmess-ws" "" "" "" "" ""
+  add_inbound 8080 "/vmess" "vmess-ws" "" "" "" "" ""
 fi
 
 touch "$REG"
@@ -634,8 +634,8 @@ test_xray_config
 cat /tmp/xray-test.log 2>/dev/null
 bar
 
-if ss -lntp | grep -q ':80'; then
-ok " XRAY INSTALADO Y ESCUCHANDO EN PUERTO 80"
+if ss -lntp | grep -q ':8080'; then
+ok " XRAY INSTALADO Y ESCUCHANDO EN PUERTO 8080"
 else
 err " XRAY INSTALADO, PERO NO ESTA ESCUCHANDO"
 fi
