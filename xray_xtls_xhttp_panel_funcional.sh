@@ -1,5 +1,5 @@
 #!/bin/bash
-# FIX 443 FUNCIONAL: Nginx 443 sin HTTP/2 forzado, puertos locales regenerados y links públicos 443.
+# FIX xHTTP 443: Nginx 443 con HTTP/2 + rutas separadas WS/xHTTP y links xHTTP con ALPN h2.
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export DEBIAN_FRONTEND=noninteractive
 export LC_ALL=C.UTF-8
@@ -871,7 +871,7 @@ jq --arg p "$path" --argjson port "$port" --argjson clients "$old_clients" '
 esac
 }
 
-nginx_location_proxy(){
+nginx_location_ws_proxy(){
 local path="$1" port="$2"
 cat <<EOFNGX
     location ^~ "$path" {
@@ -893,6 +893,29 @@ cat <<EOFNGX
 EOFNGX
 }
 
+nginx_location_xhttp_proxy(){
+local path="$1" port="$2"
+cat <<EOFNGX
+    location ^~ "$path" {
+        proxy_pass http://127.0.0.1:$port;
+        proxy_http_version 1.1;
+        proxy_redirect off;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        send_timeout 3600s;
+        client_max_body_size 0;
+    }
+EOFNGX
+}
+
 write_nginx_pkg443(){
 local domain="$1" p_vmess="$2" p_vless="$3" p_trojan="$4" p_vless_xhttp="$5" p_vmess_xhttp="$6"
 mkdir -p /etc/nginx/conf.d /etc/nginx/sites-enabled
@@ -904,10 +927,11 @@ map \$http_upgrade \$connection_upgrade {
 }
 
 server {
-    # IMPORTANTE: sin http2 para que WebSocket TLS no falle con clientes/fingerprint chrome.
-    # xHTTP queda trabajando por HTTP/1.1 detrás de Nginx y todos usan el mismo 443.
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    # Para que WebSocket y xHTTP funcionen juntos en el mismo 443:
+    # - WS usa HTTP/1.1 con Upgrade.
+    # - xHTTP usa HTTP/2 público y Nginx lo pasa a Xray local.
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     server_name $domain;
 
     ssl_certificate /usr/local/etc/xray/cert/443/cert.crt;
@@ -918,11 +942,11 @@ server {
     client_max_body_size 0;
 
 EOFNGX
-nginx_location_proxy "$p_vmess" "41001" >> /etc/nginx/conf.d/xray_tls443_package.conf
-nginx_location_proxy "$p_vless" "41002" >> /etc/nginx/conf.d/xray_tls443_package.conf
-nginx_location_proxy "$p_trojan" "41003" >> /etc/nginx/conf.d/xray_tls443_package.conf
-nginx_location_proxy "$p_vless_xhttp" "41004" >> /etc/nginx/conf.d/xray_tls443_package.conf
-nginx_location_proxy "$p_vmess_xhttp" "41005" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_ws_proxy "$p_vmess" "41001" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_ws_proxy "$p_vless" "41002" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_ws_proxy "$p_trojan" "41003" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_xhttp_proxy "$p_vless_xhttp" "41004" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_xhttp_proxy "$p_vmess_xhttp" "41005" >> /etc/nginx/conf.d/xray_tls443_package.conf
 cat >>/etc/nginx/conf.d/xray_tls443_package.conf <<'EOFNGX'
 
     location / {
@@ -1613,8 +1637,8 @@ tlsfield="tls"
 json=$(jq -n \
 --arg v "2" --arg ps "$user" --arg add "$server_addr" --arg port "$port" --arg id "$cred" \
 --arg aid "0" --arg scy "auto" --arg net "xhttp" --arg type "auto" --arg host "$hostcustom" \
---arg path "$path" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" \
-'{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp}')
+--arg path "$path" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" --arg alpn "h2" \
+'{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp,"alpn":$alpn}')
 echo "vmess://$(printf '%s' "$json" | base64 -w0)"
 ;;
 trojan-ws)
@@ -1645,7 +1669,7 @@ vless-tcp-xtls-reality)
 echo "vless://${cred}@${ip}:${port}?type=tcp&security=reality&sni=${encsni}&fp=chrome&pbk=${public_key}&sid=${short_id}&spx=${encspx}&flow=xtls-rprx-vision#${encuser}"
 ;;
 vless-xhttp-tls)
-echo "vless://${cred}@${server_addr}:${port}?type=xhttp&security=tls&sni=${encsni}&fp=chrome&path=${encpath}&mode=auto#${encuser}"
+echo "vless://${cred}@${server_addr}:${port}?type=xhttp&security=tls&sni=${encsni}&fp=chrome&alpn=h2&host=${enchost}&path=${encpath}&mode=auto#${encuser}"
 ;;
 vless-xhttp-reality)
 [[ -z "$public_key" ]] && public_key="PUBLIC_KEY_NO_ENCONTRADA"
