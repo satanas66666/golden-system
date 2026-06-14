@@ -197,6 +197,75 @@ fi
 $BIN run -test -config "$CFG" >/tmp/xray-test.log 2>&1 || $BIN test -c "$CFG" >/tmp/xray-test.log 2>&1
 }
 
+cert_valid_for_domain(){
+local cert_file="$1"
+local domain="$2"
+local min_seconds="${3:-604800}"
+
+[[ -s "$cert_file" ]] || return 1
+openssl x509 -in "$cert_file" -noout >/dev/null 2>&1 || return 1
+
+# Verifica que el certificado todavía tenga vida útil suficiente.
+# 604800 segundos = 7 días. Así no se pide otro certificado si el actual sirve.
+openssl x509 -checkend "$min_seconds" -noout -in "$cert_file" >/dev/null 2>&1 || return 1
+
+# Verifica que el dominio corresponda al certificado.
+if openssl x509 -in "$cert_file" -noout -checkhost "$domain" >/dev/null 2>&1; then
+  return 0
+fi
+
+# Fallback para OpenSSL viejo: busca el dominio en SAN/Subject.
+openssl x509 -in "$cert_file" -noout -text 2>/dev/null | grep -Fqi "$domain"
+}
+
+copy_existing_cert(){
+local port="$1"
+local domain="$2"
+local src_cert="$3"
+local src_key="$4"
+local dst_dir="/usr/local/etc/xray/cert/$port"
+
+[[ -s "$src_cert" && -s "$src_key" ]] || return 1
+cert_valid_for_domain "$src_cert" "$domain" 604800 || return 1
+mkdir -p "$dst_dir"
+cp -f "$src_cert" "$dst_dir/cert.crt"
+cp -f "$src_key" "$dst_dir/private.key"
+chmod 600 "$dst_dir/private.key" >/dev/null 2>&1 || true
+chmod 644 "$dst_dir/cert.crt" >/dev/null 2>&1 || true
+return 0
+}
+
+use_existing_tls_cert(){
+local port="$1"
+local domain="$2"
+local dst_dir="/usr/local/etc/xray/cert/$port"
+local acme_ecc="/root/.acme.sh/${domain}_ecc"
+local acme_rsa="/root/.acme.sh/${domain}"
+
+# 1) Primero reusar el certificado ya instalado en Xray/Nginx.
+if [[ -s "$dst_dir/cert.crt" && -s "$dst_dir/private.key" ]] && cert_valid_for_domain "$dst_dir/cert.crt" "$domain" 604800; then
+  ok "CERTIFICADO EXISTENTE DETECTADO PARA $domain"
+  info "Usando: $dst_dir/cert.crt"
+  return 0
+fi
+
+# 2) Si no está instalado, buscarlo en acme.sh ECC.
+if copy_existing_cert "$port" "$domain" "$acme_ecc/fullchain.cer" "$acme_ecc/${domain}.key"; then
+  ok "CERTIFICADO EXISTENTE DE ACME.SH REUTILIZADO PARA $domain"
+  info "Instalado en: $dst_dir"
+  return 0
+fi
+
+# 3) Fallback por si alguna instalación vieja lo generó RSA/no ECC.
+if copy_existing_cert "$port" "$domain" "$acme_rsa/fullchain.cer" "$acme_rsa/${domain}.key"; then
+  ok "CERTIFICADO EXISTENTE DE ACME.SH REUTILIZADO PARA $domain"
+  info "Instalado en: $dst_dir"
+  return 0
+fi
+
+return 1
+}
+
 issue_tls_cert(){
 local port="$1"
 local domain="$2"
@@ -207,18 +276,37 @@ open_port 80
 open_port "$port"
 mkdir -p "/usr/local/etc/xray/cert/$port"
 
+# IMPORTANTE:
+# Antes el script usaba --force y siempre pedía un certificado nuevo.
+# Eso puede bloquear Let's Encrypt por límite semanal.
+# Ahora primero detecta y reutiliza certificados existentes.
+if use_existing_tls_cert "$port" "$domain"; then
+  return 0
+fi
+
 bar
-info " Deteniendo Xray para liberar puerto 80 y generar certificado..."
+info " No se encontró certificado existente válido para $domain"
+info " Deteniendo Xray para liberar puerto 80 y generar certificado nuevo..."
 bar
 systemctl stop xray >/dev/null 2>&1
 sleep 2
 
-curl -s https://get.acme.sh | sh -s email=admin@"$domain"
+if [[ ! -x "$HOME/.acme.sh/acme.sh" ]]; then
+  curl -s https://get.acme.sh | sh -s email=admin@"$domain"
+fi
+
 ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-~/.acme.sh/acme.sh --issue -d "$domain" --standalone --force --keylength ec-256
+
+# Sin --force: acme.sh no debe pedir uno nuevo si puede reutilizar/instalar el existente.
+~/.acme.sh/acme.sh --issue -d "$domain" --standalone --keylength ec-256
+
+# Si acme.sh no emitió porque ya tenía uno, intentamos reutilizarlo antes de fallar.
+if use_existing_tls_cert "$port" "$domain"; then
+  return 0
+fi
 
 if [[ ! -f "/root/.acme.sh/${domain}_ecc/${domain}.key" ]]; then
-err "NO SE GENERO EL CERTIFICADO. Verifica DNS del dominio y puerto 80 libre."
+err "NO SE GENERO EL CERTIFICADO. Verifica DNS del dominio, puerto 80 libre o límite de Let's Encrypt."
 return 1
 fi
 
@@ -231,7 +319,12 @@ err "CERTIFICADO NO INSTALADO CORRECTAMENTE"
 return 1
 fi
 
-ok "CERTIFICADO TLS GENERADO PARA $domain"
+if ! cert_valid_for_domain "/usr/local/etc/xray/cert/$port/cert.crt" "$domain" 86400; then
+err "EL CERTIFICADO INSTALADO NO PERTENECE A $domain O ESTA EXPIRADO"
+return 1
+fi
+
+ok "CERTIFICADO TLS LISTO PARA $domain"
 return 0
 }
 
