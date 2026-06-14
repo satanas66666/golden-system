@@ -1,4 +1,5 @@
 #!/bin/bash
+# FIX 443 FUNCIONAL: Nginx 443 sin HTTP/2 forzado, puertos locales regenerados y links públicos 443.
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export DEBIAN_FRONTEND=noninteractive
 export LC_ALL=C.UTF-8
@@ -784,128 +785,144 @@ return 0
 
 add_inbound_local(){
 local port="$1" path="$2" mode="$3" tmp
-if jq -e --arg p "$port" '.inbounds[]? | select((.port|tostring)==$p)' "$CFG" >/dev/null 2>&1; then
-  return 0
-fi
+local proto net settings stream old_clients old_decryption
+
+case "$mode" in
+vmess-ws) proto="vmess"; net="ws" ;;
+vless-ws) proto="vless"; net="ws" ;;
+trojan-ws) proto="trojan"; net="ws" ;;
+vless-xhttp) proto="vless"; net="xhttp" ;;
+vmess-xhttp) proto="vmess"; net="xhttp" ;;
+*) return 1 ;;
+esac
+
+# Si el puerto interno ya existía de una versión anterior, lo reemplazamos
+# por una configuración limpia y funcional, pero conservando usuarios.
+old_clients=$(jq -c --arg p "$port" '.inbounds[]? | select((.port|tostring)==$p) | .settings.clients // []' "$CFG" 2>/dev/null | head -n1)
+[[ -z "$old_clients" || "$old_clients" == "null" ]] && old_clients="[]"
+
 tmp=$(mktemp)
 case "$mode" in
 vmess-ws)
-jq --arg p "$path" --argjson port "$port" '
-.inbounds += [{
-  "port": $port,
-  "listen": "127.0.0.1",
-  "protocol": "vmess",
-  "settings": {"clients": [], "disableInsecureEncryption": false},
-  "sniffing": {"enabled": false},
-  "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": $p, "headers": {}}}
-}]
+jq --arg p "$path" --argjson port "$port" --argjson clients "$old_clients" '
+  .inbounds = ((.inbounds // []) | map(select((.port|tostring) != ($port|tostring))))
+  | .inbounds += [{
+    "port": $port,
+    "listen": "127.0.0.1",
+    "protocol": "vmess",
+    "settings": {"clients": $clients, "disableInsecureEncryption": false},
+    "sniffing": {"enabled": false},
+    "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": $p, "headers": {}}}
+  }]
 ' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
 ;;
 vless-ws)
-jq --arg p "$path" --argjson port "$port" '
-.inbounds += [{
-  "port": $port,
-  "listen": "127.0.0.1",
-  "protocol": "vless",
-  "settings": {"clients": [], "decryption": "none"},
-  "sniffing": {"enabled": false},
-  "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": $p, "headers": {}}}
-}]
+jq --arg p "$path" --argjson port "$port" --argjson clients "$old_clients" '
+  .inbounds = ((.inbounds // []) | map(select((.port|tostring) != ($port|tostring))))
+  | .inbounds += [{
+    "port": $port,
+    "listen": "127.0.0.1",
+    "protocol": "vless",
+    "settings": {"clients": $clients, "decryption": "none"},
+    "sniffing": {"enabled": false},
+    "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": $p, "headers": {}}}
+  }]
 ' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
 ;;
 trojan-ws)
-jq --arg p "$path" --argjson port "$port" '
-.inbounds += [{
-  "port": $port,
-  "listen": "127.0.0.1",
-  "protocol": "trojan",
-  "settings": {"clients": []},
-  "sniffing": {"enabled": false},
-  "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": $p, "headers": {}}}
-}]
+jq --arg p "$path" --argjson port "$port" --argjson clients "$old_clients" '
+  .inbounds = ((.inbounds // []) | map(select((.port|tostring) != ($port|tostring))))
+  | .inbounds += [{
+    "port": $port,
+    "listen": "127.0.0.1",
+    "protocol": "trojan",
+    "settings": {"clients": $clients},
+    "sniffing": {"enabled": false},
+    "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": $p, "headers": {}}}
+  }]
 ' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
 ;;
 vless-xhttp)
-jq --arg p "$path" --argjson port "$port" '
-.inbounds += [{
-  "port": $port,
-  "listen": "127.0.0.1",
-  "protocol": "vless",
-  "settings": {"clients": [], "decryption": "none"},
-  "sniffing": {"enabled": false},
-  "streamSettings": {"network": "xhttp", "security": "none", "xhttpSettings": {"path": $p, "mode": "auto"}}
-}]
+jq --arg p "$path" --argjson port "$port" --argjson clients "$old_clients" '
+  .inbounds = ((.inbounds // []) | map(select((.port|tostring) != ($port|tostring))))
+  | .inbounds += [{
+    "port": $port,
+    "listen": "127.0.0.1",
+    "protocol": "vless",
+    "settings": {"clients": $clients, "decryption": "none"},
+    "sniffing": {"enabled": false},
+    "streamSettings": {"network": "xhttp", "security": "none", "xhttpSettings": {"path": $p, "mode": "auto"}}
+  }]
 ' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
 ;;
 vmess-xhttp)
-jq --arg p "$path" --argjson port "$port" '
-.inbounds += [{
-  "port": $port,
-  "listen": "127.0.0.1",
-  "protocol": "vmess",
-  "settings": {"clients": [], "disableInsecureEncryption": false},
-  "sniffing": {"enabled": false},
-  "streamSettings": {"network": "xhttp", "security": "none", "xhttpSettings": {"path": $p, "mode": "auto"}}
-}]
+jq --arg p "$path" --argjson port "$port" --argjson clients "$old_clients" '
+  .inbounds = ((.inbounds // []) | map(select((.port|tostring) != ($port|tostring))))
+  | .inbounds += [{
+    "port": $port,
+    "listen": "127.0.0.1",
+    "protocol": "vmess",
+    "settings": {"clients": $clients, "disableInsecureEncryption": false},
+    "sniffing": {"enabled": false},
+    "streamSettings": {"network": "xhttp", "security": "none", "xhttpSettings": {"path": $p, "mode": "auto"}}
+  }]
 ' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
 ;;
-*) rm -f "$tmp"; return 1 ;;
 esac
 }
 
-nginx_location_ws(){
+nginx_location_proxy(){
 local path="$1" port="$2"
 cat <<EOFNGX
-    location = "$path" {
-        proxy_redirect off;
+    location ^~ "$path" {
         proxy_pass http://127.0.0.1:$port;
         proxy_http_version 1.1;
+        proxy_redirect off;
+        proxy_buffering off;
+        proxy_request_buffering off;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection \$connection_upgrade;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
-    }
-EOFNGX
-}
-
-nginx_location_http(){
-local path="$1" port="$2"
-cat <<EOFNGX
-    location = "$path" {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:$port;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
+        client_max_body_size 0;
     }
 EOFNGX
 }
 
 write_nginx_pkg443(){
 local domain="$1" p_vmess="$2" p_vless="$3" p_trojan="$4" p_vless_xhttp="$5" p_vmess_xhttp="$6"
-mkdir -p /etc/nginx/conf.d
+mkdir -p /etc/nginx/conf.d /etc/nginx/sites-enabled
+rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/xray_tls443_package.conf
 cat >/etc/nginx/conf.d/xray_tls443_package.conf <<EOFNGX
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
 server {
-    listen 443 ssl http2;
+    # IMPORTANTE: sin http2 para que WebSocket TLS no falle con clientes/fingerprint chrome.
+    # xHTTP queda trabajando por HTTP/1.1 detrás de Nginx y todos usan el mismo 443.
+    listen 443 ssl;
+    listen [::]:443 ssl;
     server_name $domain;
 
     ssl_certificate /usr/local/etc/xray/cert/443/cert.crt;
     ssl_certificate_key /usr/local/etc/xray/cert/443/private.key;
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers on;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    client_max_body_size 0;
 
 EOFNGX
-nginx_location_ws "$p_vmess" "41001" >> /etc/nginx/conf.d/xray_tls443_package.conf
-nginx_location_ws "$p_vless" "41002" >> /etc/nginx/conf.d/xray_tls443_package.conf
-nginx_location_ws "$p_trojan" "41003" >> /etc/nginx/conf.d/xray_tls443_package.conf
-nginx_location_http "$p_vless_xhttp" "41004" >> /etc/nginx/conf.d/xray_tls443_package.conf
-nginx_location_http "$p_vmess_xhttp" "41005" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_proxy "$p_vmess" "41001" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_proxy "$p_vless" "41002" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_proxy "$p_trojan" "41003" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_proxy "$p_vless_xhttp" "41004" >> /etc/nginx/conf.d/xray_tls443_package.conf
+nginx_location_proxy "$p_vmess_xhttp" "41005" >> /etc/nginx/conf.d/xray_tls443_package.conf
 cat >>/etc/nginx/conf.d/xray_tls443_package.conf <<'EOFNGX'
 
     location / {
@@ -913,6 +930,26 @@ cat >>/etc/nginx/conf.d/xray_tls443_package.conf <<'EOFNGX'
     }
 }
 EOFNGX
+}
+
+status_pkg443(){
+bar
+info " ESTADO PAQUETE TLS 443"
+bar
+if ss -lntp | grep -q ':443' && ss -lntp | grep ':443' | grep -qi nginx; then
+  ok "Nginx escuchando en 443"
+else
+  err "Nginx NO está escuchando en 443"
+  ss -lntp | grep ':443' || true
+fi
+for p in 41001 41002 41003 41004 41005; do
+  if ss -lntp | grep -q ":$p"; then
+    ok "Xray local escuchando en $p"
+  else
+    err "Xray local NO escucha en $p"
+  fi
+done
+bar
 }
 
 agregar_paquete_tls_443(){
@@ -963,13 +1000,17 @@ add_inbound_local 41004 "$p_vless_xhttp" "vless-xhttp" || { err "No se pudo crea
 add_inbound_local 41005 "$p_vmess_xhttp" "vmess-xhttp" || { err "No se pudo crear VMess xHTTP interno"; pause; menu; }
 
 write_pkg443_conf "$domain" "$base_path" "$p_vmess" "$p_vless" "$p_trojan" "$p_vless_xhttp" "$p_vmess_xhttp"
-write_nginx_pkg443 "$domain" "$p_vmess" "$p_vless" "$p_trojan" "$p_vless_xhttp" "$p_vmess_xhttp"
 
+# Primero reiniciamos Xray para levantar los puertos locales 41001-41005.
+restart_xray
+
+write_nginx_pkg443 "$domain" "$p_vmess" "$p_vless" "$p_trojan" "$p_vless_xhttp" "$p_vmess_xhttp"
 nginx -t >/tmp/nginx-test.log 2>&1 || { err "Error en configuración Nginx"; cat /tmp/nginx-test.log; pause; menu; }
 open_port 443
 systemctl enable nginx >/dev/null 2>&1
 systemctl restart nginx >/dev/null 2>&1
-restart_xray
+sleep 1
+status_pkg443
 
 bar
 ok "PAQUETE TLS 443 ACTIVADO"
@@ -1517,7 +1558,7 @@ local public_key="${11}"
 local short_id="${12}"
 local spiderx="${13:-/}"
 
-local ip encpath encuser enchost encsni enccred encspx link_network link_security tlsfield hostfield
+local ip server_addr encpath encuser enchost encsni enccred encspx link_network link_security tlsfield hostfield
 ip=$(vps_ip)
 [[ -z "$path" || "$path" == "null" ]] && path=$(inbound_path "$port")
 [[ -z "$network" || "$network" == "null" ]] && network=$(inbound_network "$port")
@@ -1535,6 +1576,16 @@ pkg443-vless-xhttp-tls) port="443"; mode="vless-xhttp-tls"; network="xhttp"; sec
 pkg443-vmess-xhttp-tls) port="443"; mode="vmess-xhttp-tls"; network="xhttp"; security="tls" ;;
 esac
 
+# En TLS el enlace NO debe usar la IP como address/add.
+# Si usa IP, muchos clientes mandan SNI vacío o la IP, y el certificado del dominio falla.
+# Para 443 TLS público usamos siempre el dominio/SNI como servidor y dejamos la IP solo para modos sin TLS.
+server_addr="$ip"
+if [[ "$security" == "tls" && -n "$sni" && "$sni" != "null" && "$sni" != "-" ]]; then
+  server_addr="$sni"
+elif [[ "$security" == "tls" && -n "$hostcustom" && "$hostcustom" != "null" && "$hostcustom" != "-" ]]; then
+  server_addr="$hostcustom"
+fi
+
 encpath=$(urlencode "$path")
 encuser=$(urlencode "$user")
 enchost=$(urlencode "$hostcustom")
@@ -1546,39 +1597,47 @@ vmess-ws)
 tlsfield="$security"
 [[ "$tlsfield" == "none" ]] && tlsfield=""
 json=$(jq -n \
---arg v "2" --arg ps "$user" --arg add "$ip" --arg port "$port" --arg id "$cred" \
+--arg v "2" --arg ps "$user" --arg add "$server_addr" --arg port "$port" --arg id "$cred" \
 --arg aid "0" --arg scy "auto" --arg net "ws" --arg type "none" --arg host "$hostcustom" \
---arg path "$path" --arg tls "$tlsfield" \
-'{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls}')
+--arg path "$path" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" \
+'{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp}')
 echo "vmess://$(printf '%s' "$json" | base64 -w0)"
 ;;
 vmess-tcp-tls)
 tlsfield="tls"
-json=$(jq -n --arg v "2" --arg ps "$user" --arg add "$ip" --arg port "$port" --arg id "$cred" --arg aid "0" --arg scy "auto" --arg net "tcp" --arg type "none" --arg host "$hostcustom" --arg path "" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" '{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp}')
+json=$(jq -n --arg v "2" --arg ps "$user" --arg add "$server_addr" --arg port "$port" --arg id "$cred" --arg aid "0" --arg scy "auto" --arg net "tcp" --arg type "none" --arg host "$hostcustom" --arg path "" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" '{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp}')
 echo "vmess://$(printf '%s' "$json" | base64 -w0)"
 ;;
 vmess-xhttp-tls)
 tlsfield="tls"
 json=$(jq -n \
---arg v "2" --arg ps "$user" --arg add "$ip" --arg port "$port" --arg id "$cred" \
+--arg v "2" --arg ps "$user" --arg add "$server_addr" --arg port "$port" --arg id "$cred" \
 --arg aid "0" --arg scy "auto" --arg net "xhttp" --arg type "auto" --arg host "$hostcustom" \
---arg path "$path" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" --arg alpn "h2" \
-'{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp,"alpn":$alpn}')
+--arg path "$path" --arg tls "$tlsfield" --arg sni "$sni" --arg fp "chrome" \
+'{"v":$v,"ps":$ps,"add":$add,"port":$port,"id":$id,"aid":$aid,"scy":$scy,"net":$net,"type":$type,"host":$host,"path":$path,"tls":$tls,"sni":$sni,"fp":$fp}')
 echo "vmess://$(printf '%s' "$json" | base64 -w0)"
 ;;
 trojan-ws)
 enccred=$(urlencode "$cred")
 link_security="none"
 [[ "$security" == "tls" ]] && link_security="tls"
-echo "trojan://${enccred}@${ip}:${port}?type=ws&security=${link_security}&path=${encpath}&host=${enchost}&sni=${encsni}#${encuser}"
+if [[ "$link_security" == "tls" ]]; then
+  echo "trojan://${enccred}@${server_addr}:${port}?type=ws&security=${link_security}&path=${encpath}&host=${enchost}&sni=${encsni}&fp=chrome#${encuser}"
+else
+  echo "trojan://${enccred}@${server_addr}:${port}?type=ws&security=${link_security}&path=${encpath}&host=${enchost}#${encuser}"
+fi
 ;;
 vless-ws)
 link_security="none"
 [[ "$security" == "tls" ]] && link_security="tls"
-echo "vless://${cred}@${ip}:${port}?type=ws&security=${link_security}&path=${encpath}&host=${enchost}&sni=${encsni}#${encuser}"
+if [[ "$link_security" == "tls" ]]; then
+  echo "vless://${cred}@${server_addr}:${port}?type=ws&security=${link_security}&path=${encpath}&host=${enchost}&sni=${encsni}&fp=chrome#${encuser}"
+else
+  echo "vless://${cred}@${server_addr}:${port}?type=ws&security=${link_security}&path=${encpath}&host=${enchost}#${encuser}"
+fi
 ;;
 vless-tcp-xtls-tls)
-echo "vless://${cred}@${ip}:${port}?type=tcp&security=tls&sni=${encsni}&fp=chrome&flow=xtls-rprx-vision#${encuser}"
+echo "vless://${cred}@${server_addr}:${port}?type=tcp&security=tls&sni=${encsni}&fp=chrome&flow=xtls-rprx-vision#${encuser}"
 ;;
 vless-tcp-xtls-reality)
 [[ -z "$public_key" ]] && public_key="PUBLIC_KEY_NO_ENCONTRADA"
@@ -1586,7 +1645,7 @@ vless-tcp-xtls-reality)
 echo "vless://${cred}@${ip}:${port}?type=tcp&security=reality&sni=${encsni}&fp=chrome&pbk=${public_key}&sid=${short_id}&spx=${encspx}&flow=xtls-rprx-vision#${encuser}"
 ;;
 vless-xhttp-tls)
-echo "vless://${cred}@${ip}:${port}?type=xhttp&security=tls&sni=${encsni}&fp=chrome&path=${encpath}&mode=auto&alpn=h2#${encuser}"
+echo "vless://${cred}@${server_addr}:${port}?type=xhttp&security=tls&sni=${encsni}&fp=chrome&path=${encpath}&mode=auto#${encuser}"
 ;;
 vless-xhttp-reality)
 [[ -z "$public_key" ]] && public_key="PUBLIC_KEY_NO_ENCONTRADA"
