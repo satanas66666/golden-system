@@ -121,6 +121,51 @@ ufw allow "$p"/udp >/dev/null 2>&1
 fi
 }
 
+port_listening_exact(){
+local p="$1"
+[[ -z "$p" ]] && return 1
+ss -lntp "( sport = :$p )" 2>/dev/null | awk 'NR>1 {found=1} END{exit !found}'
+}
+
+port_owner_exact(){
+local p="$1"
+[[ -z "$p" ]] && return 1
+ss -lntp "( sport = :$p )" 2>/dev/null | awk 'NR>1 {print}'
+}
+
+free_nginx_default_80(){
+# La opción [10] usa Nginx solo para 443.
+# Si Nginx quedó con la página default en 80, bloquea puertos individuales como 80.
+# Aquí quitamos SOLO el default de Nginx; no tocamos el proxy 443 del paquete.
+rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf >/dev/null 2>&1
+if command -v nginx >/dev/null 2>&1 && systemctl is-active --quiet nginx; then
+  nginx -t >/tmp/nginx-test.log 2>&1 && systemctl reload nginx >/dev/null 2>&1
+fi
+}
+
+check_individual_port_free(){
+local p="$1"
+[[ -z "$p" ]] && return 1
+
+if [[ "$p" == "80" ]]; then
+  free_nginx_default_80
+fi
+
+if port_listening_exact "$p"; then
+  # Si el puerto está escuchando y no existe en config, Xray no podrá abrirlo.
+  err "El puerto $p está ocupado por otro servicio:"
+  port_owner_exact "$p"
+  if [[ "$p" == "80" ]]; then
+    echo
+    info "Si aparece nginx en 80, elimina el sitio default o reinicia nginx con solo el paquete 443."
+    info "El paquete TLS 443 NO necesita que Nginx escuche en 80."
+  fi
+  return 1
+fi
+
+return 0
+}
+
 close_port(){
 local p="$1"
 [[ -z "$p" ]] && return
@@ -287,8 +332,15 @@ fi
 
 bar
 info " No se encontró certificado existente válido para $domain"
-info " Deteniendo Xray para liberar puerto 80 y generar certificado nuevo..."
+info " Deteniendo Xray y liberando puerto 80 para generar certificado nuevo..."
 bar
+local nginx_was_active=0
+systemctl is-active --quiet nginx && nginx_was_active=1
+free_nginx_default_80
+# acme.sh --standalone necesita el puerto 80 libre.
+if port_listening_exact 80 && port_owner_exact 80 | grep -qi nginx; then
+  systemctl stop nginx >/dev/null 2>&1
+fi
 systemctl stop xray >/dev/null 2>&1
 sleep 2
 
@@ -308,6 +360,9 @@ fi
 
 if [[ ! -f "/root/.acme.sh/${domain}_ecc/${domain}.key" ]]; then
 err "NO SE GENERO EL CERTIFICADO. Verifica DNS del dominio, puerto 80 libre o límite de Let's Encrypt."
+if [[ "${nginx_was_active:-0}" == "1" ]] || [[ -s /etc/nginx/conf.d/xray_tls443_package.conf ]]; then
+  systemctl restart nginx >/dev/null 2>&1 || true
+fi
 return 1
 fi
 
@@ -317,15 +372,24 @@ fi
 
 if [[ ! -s "/usr/local/etc/xray/cert/$port/private.key" || ! -s "/usr/local/etc/xray/cert/$port/cert.crt" ]]; then
 err "CERTIFICADO NO INSTALADO CORRECTAMENTE"
+if [[ "${nginx_was_active:-0}" == "1" ]] || [[ -s /etc/nginx/conf.d/xray_tls443_package.conf ]]; then
+  systemctl restart nginx >/dev/null 2>&1 || true
+fi
 return 1
 fi
 
 if ! cert_valid_for_domain "/usr/local/etc/xray/cert/$port/cert.crt" "$domain" 86400; then
 err "EL CERTIFICADO INSTALADO NO PERTENECE A $domain O ESTA EXPIRADO"
+if [[ "${nginx_was_active:-0}" == "1" ]] || [[ -s /etc/nginx/conf.d/xray_tls443_package.conf ]]; then
+  systemctl restart nginx >/dev/null 2>&1 || true
+fi
 return 1
 fi
 
 ok "CERTIFICADO TLS LISTO PARA $domain"
+if [[ "${nginx_was_active:-0}" == "1" ]] || [[ -s /etc/nginx/conf.d/xray_tls443_package.conf ]]; then
+  systemctl restart nginx >/dev/null 2>&1 || true
+fi
 return 0
 }
 
@@ -727,7 +791,7 @@ create_config
 import_legacy_v2ray
 
 if [[ "$(jq -r '(.inbounds // []) | length' "$CFG" 2>/dev/null)" == "0" ]]; then
-  add_inbound 80 "/vmess" "vmess-ws" "" "" "" "" ""
+  add_inbound 8787 "/vmess" "vmess-ws" "" "" "" "" ""
 fi
 
 touch "$REG"
@@ -741,8 +805,8 @@ test_xray_config
 cat /tmp/xray-test.log 2>/dev/null
 bar
 
-if ss -lntp | grep -q ':80'; then
-ok " XRAY INSTALADO Y ESCUCHANDO EN PUERTO 80"
+if ss -lntp | grep -q ':8787'; then
+ok " XRAY INSTALADO Y ESCUCHANDO EN PUERTO 8787"
 else
 err " XRAY INSTALADO, PERO NO ESTA ESCUCHANDO"
 fi
@@ -1181,6 +1245,10 @@ err "Ese puerto ya existe"
 pause
 menu
 fi
+
+# Permite abrir puertos individuales aunque el paquete TLS 443 esté activo.
+# Esto libera el 80 si Nginx quedó con el default y valida ocupación real exacta.
+check_individual_port_free "$port" || { pause; menu; }
 
 path=""
 domain=""
