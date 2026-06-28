@@ -206,11 +206,11 @@ jq -nr --arg v "$1" '$v|@uri'
 normalize_path(){
 local path="$1"
 local def="$2"
+
+# Si está vacío, usa el valor por defecto.
+# Si escribes algo, lo respeta EXACTAMENTE como lo pusiste.
 [[ -z "$path" ]] && path="$def"
-local first_char="${path:0:1}"
-if [[ "$first_char" != "/" && "$first_char" != " " ]]; then
-path="/$path"
-fi
+
 echo "$path"
 }
 
